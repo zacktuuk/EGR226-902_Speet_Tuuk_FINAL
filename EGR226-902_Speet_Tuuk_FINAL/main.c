@@ -44,6 +44,7 @@ while (1){
     case clock:
         if(time_update){
             commandWrite(0xC1);
+
                 sprintf(currenttime,"%02d:%02d:%02d XM",hours,mins,secs);
                 while(!(currenttime[i]=='\0')){                            //print my name until null
                                  dataWrite(currenttime[i]);
@@ -233,8 +234,6 @@ void RTC_C_IRQHandler()
         RTC_C->PS1CTL &= ~BIT0;
         }
     }
-//test hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh
-
     if(time_set == 0)
     {
         if(RTC_C->PS1CTL & BIT0){
