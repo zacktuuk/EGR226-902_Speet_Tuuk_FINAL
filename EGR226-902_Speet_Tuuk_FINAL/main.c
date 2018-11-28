@@ -16,7 +16,7 @@ enum states{
 };
 enum states state = clock;
 int time_update = 0, alarm_update = 0, i = 0, time_set = 0;
-uint8_t hours, mins, secs;
+uint8_t hours, mins, secs, hour_update;
 
 void initialization();
 void LCD_init();
@@ -220,6 +220,13 @@ void RTC_C_IRQHandler()
 {
     if(time_set == 1)
     {
+        if(mins>59)
+        {
+        hour_update = hours;
+        hour_update++;
+        if(hour_update>23)
+            hour_update=0;
+
         if(RTC_C->PS1CTL & BIT0){
             hours = RTC_C->TIM1 & 0x00FF;
             mins = (RTC_C->TIM0 & 0xFF00) >> 8;
@@ -250,8 +257,7 @@ void RTC_C_IRQHandler()
         RTC_C->CTL0 = (0xA500) | BIT5;
     }
 }
-void PORT3_IRQHandler()
-{
+void PORT3_IRQHandler(){
     int status = P3->IFG;
     //int time_set = 1;
     P3->IFG = 0;
