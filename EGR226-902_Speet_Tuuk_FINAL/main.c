@@ -31,13 +31,13 @@ void delay_micro(unsigned microsec);      //delay for a microsecond delay
 void main(void)
 {
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
-char currenttime[11];
-char temperature[11];
-char alarmset[11];
+char currenttime[11];                               //array that carries current time
+char temperature[11];                               //array that carries the temperature
+char alarmset[11];                                  //array that carries the alarm time
     initialization();                               //initialize all pins, timers, and interrupts
-    RTC_Init();
-    __enable_interrupt();
-    LCD_init();
+    RTC_Init();                                     //initialize RTC clock
+    __enable_interrupt();                           //enable interrupts
+    LCD_init();                                     //intialize LCD to blink
 
 while (1){
     switch (state){
@@ -46,7 +46,7 @@ while (1){
             commandWrite(0xC1);
 
                 sprintf(currenttime,"%02d:%02d:%02d XM",hours,mins,secs);
-                while(!(currenttime[i]=='\0')){                            //print my name until null
+                while(!(currenttime[i]=='\0')){                            //print the time until null
                                  dataWrite(currenttime[i]);
                                  i++;
                                  }
