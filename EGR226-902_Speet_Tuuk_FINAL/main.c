@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 /*
- * Dylan Speet and Zackary Tuck
+ * Dylan Speet and Zachary Tuuk
  * 11/27/2018 Start
  * Alarm Clock Final Project for EGR 226-902
  * Uses timerA, Real time clock, Interrupts, DAC, and ADC
