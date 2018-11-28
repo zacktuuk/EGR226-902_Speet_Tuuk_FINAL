@@ -2,7 +2,7 @@
 #include <stdio.h>
 #include <string.h>
 /*
- * Dylan Speet and Zachary Tuuk
+ * Dylan Speet and Zackary Tuck
  * 11/27/2018 Start
  * Alarm Clock Final Project for EGR 226-902
  * Uses timerA, Real time clock, Interrupts, DAC, and ADC
@@ -15,8 +15,9 @@ enum states{
     snooze
 };
 enum states state = clock;
-int time_update = 0, alarm_update = 0, i = 0, time_set = 0;
-uint8_t hours, mins, secs, hour_update;
+int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours;
+uint8_t mins, secs, hour_update;
+char m;
 
 void initialization();
 void LCD_init();
@@ -31,26 +32,32 @@ void delay_micro(unsigned microsec);      //delay for a microsecond delay
 void main(void)
 {
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
-char currenttime[11];                               //array that carries current time
-char temperature[11];                               //array that carries the temperature
-char alarmset[11];                                  //array that carries the alarm time
+char currenttime[11];
+char temperature[11];
+char alarmset[11];
     initialization();                               //initialize all pins, timers, and interrupts
-    RTC_Init();                                     //initialize RTC clock
-    __enable_interrupt();                           //enable interrupts
-    LCD_init();                                     //intialize LCD to blink
+    RTC_Init();
+    __enable_interrupt();
+    LCD_init();
 
 while (1){
     switch (state){
     case clock:
         if(time_update){
             commandWrite(0xC1);
-
-                sprintf(currenttime,"%02d:%02d:%02d XM",hours,mins,secs);
-                while(!(currenttime[i]=='\0')){                            //print the time until null
+                if(hours<10){
+                    sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
+                }
+                else
+                    sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
+                while(!(currenttime[i]=='\0')){                            //print my name until null
                                  dataWrite(currenttime[i]);
                                  i++;
                                  }
                                  i=0;
+                if(hours<10)
+                    printf(" %01d:%02d:%02d\n",hours,mins,secs);
+                else
                     printf("%02d:%02d:%02d\n",hours,mins,secs);
                 }
                 if(alarm_update){
@@ -60,6 +67,130 @@ while (1){
         break;
     }
 }
+}
+void RTC_Init(){
+    //Initialize time to 2:45:55 pm
+//    RTC_C->TIM0 = 0x2D00;  //45 min, 0 secs
+    RTC_C->CTL0 = (0xA500);
+    RTC_C->CTL13 = 0;
+
+    RTC_C->TIM0 = 55<<8 | 45;//45 min, 55 secs
+    RTC_C->TIM1 = 1<<8 | 11;  //Monday, 2 pm
+    RTC_C->YEAR = 2018;
+    //Alarm at 2:46 pm
+    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
+    RTC_C->ADOWDAY = 0;
+    RTC_C->PS1CTL = 0b0010;  //1/64 second interrupt is 0b0010 a 1 second interupt is
+
+    RTC_C->CTL0 = (0xA500) | BIT5; //turn on interrupt
+    RTC_C->CTL13 = 0;
+    NVIC_EnableIRQ(RTC_C_IRQn);
+
+}
+
+void RTC_C_IRQHandler()
+{
+    if(RTC_C->PS1CTL & BIT0){
+        hours = RTC_C->TIM1 & 0x00FF;
+        mins = (RTC_C->TIM0 & 0xFF00) >> 8;
+        if(mins>59)
+            RTC_C->TIM0 = 0<<8;
+        secs = RTC_C->TIM0 & 0x00FF;
+    }
+    if(time_set == 1)
+    {
+        if(mins>59){
+            RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)+1);
+        }
+//        if(hours>12){
+//            m = 'P';
+//        }
+//        if(hours<=12){
+//            m = 'A';
+//        }
+        if(hours>24)
+            RTC_C->TIM1 = 1;
+        if(hours>=12 && hours<24){
+            m = 'P';
+            //hours = hours-12;
+        }
+        else
+            m = 'A';
+        if(hours>12){
+            hours = hours-12;
+        }
+        if(secs != 59){
+            RTC_C->TIM0 = RTC_C->TIM0 + 1;
+        }
+        else {
+            RTC_C->TIM0 = (((RTC_C->TIM0 & 0xFF00) >> 8)+1)<<8;
+            time_update = 1;
+        }
+        RTC_C->PS1CTL &= ~BIT0;
+    }
+    if(time_set == 0)
+    {
+//        if(hours>12){
+//            m = 'P';
+//        }
+//        if(hours<=12) {
+//            m = 'A';
+//        }
+        if(hours>24)
+            RTC_C->TIM1 = 1;
+        if(hours>=12 && hours<24){
+            m = 'P';
+            //hours = hours-12;
+        }
+        else
+            m = 'A';
+        if(hours>12){
+            hours = hours-12;
+        }
+        time_update = 1;
+        RTC_C->PS1CTL &= ~BIT0;
+    }
+    if(RTC_C->CTL0 & BIT1)
+    {
+        alarm_update = 1;
+        RTC_C->CTL0 = (0xA500) | BIT5;
+    }
+}
+void PORT3_IRQHandler()
+{
+    int status = P3->IFG;
+    //int time_set = 1;
+    P3->IFG = 0;
+    if(status & BIT2) //second timing
+    {
+        //sets the RTC to have 1 second real time = 1 second clock time
+        time_set=0;
+    }
+    if(status & BIT3) //minute timing
+    {
+        //sets the RTC so that 1 second real time = 1 minute clock time
+        time_set=1;
+    }
+    if(status & BIT5) //set alarm
+    {
+        //sets the alarm time for the RTC
+    }
+    if(status & BIT6) //set time
+    {
+        //sets the current time for the RTC
+    }
+    if(status & BIT7) //snooze/down
+    {
+        //sets the alarm for 10 minutes later for the snooze function
+        //acts as the DOWN button for when times are entered
+    }
+    if(status & BIT0) //On/Off/Up
+    {
+        //turns the alarm on/off when it hasn't sounded yet
+        //turns the alarm off if it is going off
+        //turns pff the alarm if warm up lights sequence has started 5 min before alarm time
+        //acts as the UP button for when times are entered
+    }
 }
 void initialization(){
 SysTick -> CTRL = 0;                    //Systic Timer
@@ -195,101 +326,4 @@ void LCD_init()
     delay_micro(100);
     commandWrite(6);
     delay_ms(10);
-}
-void RTC_Init(){
-    //Initialize time to 2:45:55 pm
-//    RTC_C->TIM0 = 0x2D00;  //45 min, 0 secs
-    RTC_C->CTL0 = (0xA500);
-    RTC_C->CTL13 = 0;
-
-    RTC_C->TIM0 = 45<<8 | 55;//45 min, 55 secs
-    RTC_C->TIM1 = 1<<8 | 14;  //Monday, 2 pm
-    RTC_C->YEAR = 2018;
-    //Alarm at 2:46 pm
-    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
-    RTC_C->ADOWDAY = 0;
-    RTC_C->PS1CTL = 0b0010;  //1/64 second interrupt is 0b0010 a 1 second interupt is
-
-    RTC_C->CTL0 = (0xA500) | BIT5; //turn on interrupt
-    RTC_C->CTL13 = 0;
-    NVIC_EnableIRQ(RTC_C_IRQn);
-
-}
-
-void RTC_C_IRQHandler()
-{
-    if(time_set == 1)
-    {
-        if(mins>59)
-        {
-        hour_update = hours;
-        hour_update++;
-        if(hour_update>23)
-            hour_update=0;
-
-        if(RTC_C->PS1CTL & BIT0){
-            hours = RTC_C->TIM1 & 0x00FF;
-            mins = (RTC_C->TIM0 & 0xFF00) >> 8;
-            secs = RTC_C->TIM0 & 0x00FF;
-            if(secs != 59){
-                RTC_C->TIM0 = RTC_C->TIM0 + 1;
-        }
-        else {
-            RTC_C->TIM0 = (((RTC_C->TIM0 & 0xFF00) >> 8)+1)<<8;
-            time_update = 1;
-        }
-        RTC_C->PS1CTL &= ~BIT0;
-        }
-    }
-    if(time_set == 0)
-    {
-        if(RTC_C->PS1CTL & BIT0){
-            hours = RTC_C->TIM1 & 0x00FF;
-            mins = (RTC_C->TIM0 & 0xFF00) >> 8;
-            secs = RTC_C->TIM0 & 0x00FF;
-                time_update = 1;
-            RTC_C->PS1CTL &= ~BIT0;
-        }
-    }
-    if(RTC_C->CTL0 & BIT1)
-    {
-        alarm_update = 1;
-        RTC_C->CTL0 = (0xA500) | BIT5;
-    }
-}
-void PORT3_IRQHandler(){
-    int status = P3->IFG;
-    //int time_set = 1;
-    P3->IFG = 0;
-    if(status & BIT2) //second timing
-    {
-
-        //sets the RTC to have 1 second real time = 1 second clock time
-        time_set=0;
-    }
-    if(status & BIT3) //minute timing
-    {
-        //sets the RTC so that 1 second real time = 1 minute clock time
-        time_set=1;
-    }
-    if(status & BIT5) //set alarm
-    {
-        //sets the alarm time for the RTC
-    }
-    if(status & BIT6) //set time
-    {
-        //sets the current time for the RTC
-    }
-    if(status & BIT7) //snooze/down
-    {
-        //sets the alarm for 10 minutes later for the snooze function
-        //acts as the DOWN button for when times are entered
-    }
-    if(status & BIT0) //On/Off/Up
-    {
-        //turns the alarm on/off when it hasn't sounded yet
-        //turns the alarm off if it is going off
-        //turns pff the alarm if warm up lights sequence has started 5 min before alarm time
-        //acts as the UP button for when times are entered
-    }
 }
