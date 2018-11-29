@@ -15,7 +15,7 @@ enum states{
     snooze
 };
 enum states state = clock;
-int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours;
+int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, set_time = 0, houradjust = 0, minadjust = 0;
 uint8_t mins, secs, hour_update;
 char m;
 
@@ -35,6 +35,7 @@ void main(void)
 char currenttime[11];
 char temperature[11];
 char alarmset[11];
+char doublespace[2] = "  ";                                //used to write blanks
     initialization();                               //initialize all pins, timers, and interrupts
     RTC_Init();
     __enable_interrupt();
@@ -44,7 +45,7 @@ while (1){
     switch (state){
     case clock:
         if(time_update){
-            commandWrite(0xC1);
+            commandWrite(0xC2);
                 if(hours<10){
                     sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
                 }
@@ -64,6 +65,53 @@ while (1){
                     printf("ALARM\n");
                     alarm_update = 0;
                 }
+        break;
+
+    case settime:
+        if(set_time == 1 && houradjust == 0){
+            commandWrite(0xC2);
+            while(!(doublespace[i]=='\0')){                            //print doublespace until null
+                 dataWrite(doublespace[i]);
+                 i++;
+                 }
+                 i=0;
+        }
+        if(houradjust == 1 && set_time == 1)
+        {
+            commandWrite(0xC2);
+        if(hours<10){
+            sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
+        }
+        else
+            sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
+        while(!(currenttime[i]=='\0')){                            //print time until null
+                         dataWrite(currenttime[i]);
+                         i++;
+                         }
+                         i=0;
+        }
+        if(set_time == 2 && minadjust == 0){
+            commandWrite(0xC5);
+                       while(!(doublespace[i]=='\0')){                            //print doublespace until null
+                            dataWrite(doublespace[i]);
+                            i++;
+                            }
+                            i=0;
+        }
+        if(set_time == 2 && minadjust ==1)
+        {
+               commandWrite(0xC5);
+           if(hours<10){
+               sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
+           }
+           else
+               sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
+           while(!(currenttime[i]=='\0')){                            //print time until null
+                            dataWrite(currenttime[i]);
+                            i++;
+                            }
+                            i=0;
+           }
         break;
     }
 }
@@ -102,17 +150,10 @@ void RTC_C_IRQHandler()
         if(mins>59){
             RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)+1);
         }
-//        if(hours>12){
-//            m = 'P';
-//        }
-//        if(hours<=12){
-//            m = 'A';
-//        }
         if(hours>24)
             RTC_C->TIM1 = 1;
         if(hours>=12 && hours<24){
             m = 'P';
-            //hours = hours-12;
         }
         else
             m = 'A';
@@ -130,17 +171,10 @@ void RTC_C_IRQHandler()
     }
     if(time_set == 0)
     {
-//        if(hours>12){
-//            m = 'P';
-//        }
-//        if(hours<=12) {
-//            m = 'A';
-//        }
         if(hours>24)
             RTC_C->TIM1 = 1;
         if(hours>=12 && hours<24){
             m = 'P';
-            //hours = hours-12;
         }
         else
             m = 'A';
@@ -159,7 +193,6 @@ void RTC_C_IRQHandler()
 void PORT3_IRQHandler()
 {
     int status = P3->IFG;
-    //int time_set = 1;
     P3->IFG = 0;
     if(status & BIT2) //second timing
     {
@@ -173,16 +206,46 @@ void PORT3_IRQHandler()
     }
     if(status & BIT5) //set alarm
     {
-        //sets the alarm time for the RTC
+
     }
     if(status & BIT6) //set time
     {
         //sets the current time for the RTC
+        state = settime;
+       set_time++;
+       if(set_time == 2){
+           houradjust = 0;
+       }
+
     }
     if(status & BIT7) //snooze/down
     {
         //sets the alarm for 10 minutes later for the snooze function
         //acts as the DOWN button for when times are entered
+        if(state == settime && set_time == 1){
+            houradjust=1;
+
+         if(RTC_C->TIM1 > 1){
+             RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)-1);
+                             }
+         if(RTC_C->TIM1 == 1)
+         {
+             RTC_C->TIM1 == 24;
+         }
+        }
+        if(state == settime && set_time == 2)
+        {
+            minadjust = 1;
+
+            if((RTC_C->TIM0<<8) > 0){
+             //   RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)-1);
+                                }
+            if((RTC_C->TIM0<<8) == 0)
+            {
+                RTC_C->TIM1 == 59;
+            }
+        }
+
     }
     if(status & BIT0) //On/Off/Up
     {
@@ -190,6 +253,32 @@ void PORT3_IRQHandler()
         //turns the alarm off if it is going off
         //turns pff the alarm if warm up lights sequence has started 5 min before alarm time
         //acts as the UP button for when times are entered
+        if(state == settime && set_time == 1){
+            houradjust=1;
+                if(RTC_C->TIM1 < 24){
+                    RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)+1);
+                                    }
+                if(RTC_C->TIM1 == 24)
+                {
+                    RTC_C->TIM1 == 1;
+                }
+               }
+        if(state == settime && set_time ==2)
+        {
+            minadjust = 1;
+            if(state == settime && set_time == 2)
+               {
+                   minadjust = 1;
+
+                   if((RTC_C->TIM0<<8) < 59){
+                 //    RTC_C->TIM1++;
+                                       }
+                   if((RTC_C->TIM0<<8) == 59)
+                   {
+                       RTC_C->TIM0 == 0;
+                   }
+               }
+        }
     }
 }
 void initialization(){
