@@ -15,8 +15,8 @@ enum states{
     snooze
 };
 enum states state = clock;
-int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, set_time = 0, houradjust = 0, minadjust = 0;
-uint8_t mins, secs, hour_update;
+int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0;
+uint8_t  secs, hour_update;
 char m;
 
 void initialization();
@@ -100,7 +100,7 @@ while (1){
         }
         if(set_time == 2 && minadjust ==1)
         {
-               commandWrite(0xC5);
+               commandWrite(0xC2);
            if(hours<10){
                sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
            }
@@ -193,6 +193,7 @@ void RTC_C_IRQHandler()
 void PORT3_IRQHandler()
 {
     int status = P3->IFG;
+  delay_ms(50);
     P3->IFG = 0;
     if(status & BIT2) //second timing
     {
@@ -216,6 +217,15 @@ void PORT3_IRQHandler()
        if(set_time == 2){
            houradjust = 0;
        }
+       if(set_time == 3)
+       {
+           minadjust = 0;
+       }
+       if(set_time == 4)
+       {
+           state = clock;
+           set_time = 0;
+       }
 
     }
     if(status & BIT7) //snooze/down
@@ -230,19 +240,19 @@ void PORT3_IRQHandler()
                              }
          if(RTC_C->TIM1 == 1)
          {
-             RTC_C->TIM1 == 24;
+             RTC_C->TIM1 = 24;
          }
         }
         if(state == settime && set_time == 2)
         {
             minadjust = 1;
 
-            if((RTC_C->TIM0<<8) > 0){
-             //   RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)-1);
+            if((RTC_C->TIM0 & 0xFF00) > 0<<8){
+              RTC_C->TIM0 = ((RTC_C->TIM0 & 0xFF00)-1);
                                 }
-            if((RTC_C->TIM0<<8) == 0)
+            if((RTC_C->TIM0 & 0xFF00) == 0<<8)
             {
-                RTC_C->TIM1 == 59;
+                RTC_C->TIM0 = ((RTC_C->TIM0<<8 & 0xFF00)+59);
             }
         }
 
@@ -255,29 +265,24 @@ void PORT3_IRQHandler()
         //acts as the UP button for when times are entered
         if(state == settime && set_time == 1){
             houradjust=1;
-                if(RTC_C->TIM1 < 24){
+                if((RTC_C->TIM1>>8) < 24){
                     RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)+1);
                                     }
-                if(RTC_C->TIM1 == 24)
+                if(RTC_C->TIM1 > 24)
                 {
-                    RTC_C->TIM1 == 1;
+                    RTC_C->TIM1 = 1;
                 }
                }
         if(state == settime && set_time ==2)
         {
             minadjust = 1;
-            if(state == settime && set_time == 2)
-               {
-                   minadjust = 1;
-
-                   if((RTC_C->TIM0<<8) < 59){
-                 //    RTC_C->TIM1++;
-                                       }
-                   if((RTC_C->TIM0<<8) == 59)
+            if((RTC_C->TIM0 & 0xFF00) < 59<<8){
+                         RTC_C->TIM0 = ((RTC_C->TIM0 & 0xFF00)+1);
+                                           }
+                   if((RTC_C->TIM0 & 0xFF00) == 59<<8)
                    {
-                       RTC_C->TIM0 == 0;
+                       RTC_C->TIM0 = 0<<8;
                    }
-               }
         }
     }
 }
