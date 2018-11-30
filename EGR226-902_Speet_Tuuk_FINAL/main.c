@@ -46,20 +46,16 @@ while (1){
     case clock:
         if(time_update){
             commandWrite(0xC2);
-                if(hours<10){
-                    sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
-                }
-                else
-                    sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
-                while(!(currenttime[i]=='\0')){                            //print my name until null
-                                 dataWrite(currenttime[i]);
-                                 i++;
-                                 }
-                                 i=0;
-                if(hours<10)
-                    printf(" %01d:%02d:%02d\n",hours,mins,secs);
-                else
-                    printf("%02d:%02d:%02d\n",hours,mins,secs);
+             if(hours<10){
+                 sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
+             }
+             else
+                 sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
+             while(!(currenttime[i]=='\0')){                            //print time until null
+                              dataWrite(currenttime[i]);
+                              i++;
+                              }
+                              i=0;
                 }
                 if(alarm_update){
                     printf("ALARM\n");
@@ -102,10 +98,10 @@ while (1){
         {
                commandWrite(0xC2);
            if(hours<10){
-               sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
+               sprintf(currenttime," %01d:%02d:00 %cM",hours,mins, m);
            }
            else
-               sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
+               sprintf(currenttime,"%02d:%02d:00 %cM",hours,mins, m);
            while(!(currenttime[i]=='\0')){                            //print time until null
                             dataWrite(currenttime[i]);
                             i++;
@@ -220,13 +216,9 @@ void PORT3_IRQHandler()
        if(set_time == 3)
        {
            minadjust = 0;
-       }
-       if(set_time == 4)
-       {
            state = clock;
            set_time = 0;
        }
-
     }
     if(status & BIT7) //snooze/down
     {
@@ -273,16 +265,16 @@ void PORT3_IRQHandler()
                     RTC_C->TIM1 = 1;
                 }
                }
-        if(state == settime && set_time ==2)
+        if(state == settime && set_time == 2)
         {
             minadjust = 1;
-            if((RTC_C->TIM0 & 0xFF00) < 59<<8){
-                         RTC_C->TIM0 = ((RTC_C->TIM0 & 0xFF00)+1);
-                                           }
-                   if((RTC_C->TIM0 & 0xFF00) == 59<<8)
-                   {
-                       RTC_C->TIM0 = 0<<8;
-                   }
+            if((RTC_C->TIM0 & 0xFF00) <= 59<<8){
+                          RTC_C->TIM0 = ((RTC_C->TIM0)+(1<<8));
+                                            }
+                        if((RTC_C->TIM0 & 0xFF00) == 60<<8)
+                        {
+                            RTC_C->TIM0 = 0<<8;
+                        }
         }
     }
 }
