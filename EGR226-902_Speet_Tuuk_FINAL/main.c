@@ -15,9 +15,10 @@ enum states{
     snooze
 };
 enum states state = clock;
-int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0;
+int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0;;
 uint8_t  secs, hour_update;
-char m;
+int alarmhours, alarmmins;
+char m, a;
 
 void initialization();
 void LCD_init();
@@ -34,7 +35,7 @@ void main(void)
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
 char currenttime[11];
 char temperature[11];
-char alarmset[11];
+char alarmtime[14];
 char doublespace[2] = "  ";                                //used to write blanks
     initialization();                               //initialize all pins, timers, and interrupts
     RTC_Init();
@@ -42,6 +43,16 @@ char doublespace[2] = "  ";                                //used to write blank
     LCD_init();
 
 while (1){
+//    alarmmins = RTC_C->AMINHR & 0x003F;
+//
+//             if((RTC_C->AMINHR & 0x1F00) > 12<<8){
+//                 alarmhours =  (RTC_C->AMINHR) - 12<<8;
+//                 a = 'P';
+//             }
+//             else {
+//                 a = 'A';
+//                 alarmhours = (RTC_C->AMINHR & 0x1F00);
+//             }
     switch (state){
     case clock:
         if(time_update){
@@ -57,6 +68,17 @@ while (1){
                               }
                               i=0;
                 }
+        commandWrite(0x90);
+        if(alarmhours<10){
+            sprintf(alarmtime,"ALARM:%01d:%02d %cM",alarmhours,alarmmins,a);
+        }
+        else
+            sprintf(alarmtime,"ALARM:%02d:%02d %cM",alarmhours,alarmmins,a);
+        while(!(alarmtime[i]=='\0')){
+                                dataWrite(alarmtime[i]);
+                                        i++;
+                                        }
+                                        i=0;
                 if(alarm_update){
                     printf("ALARM\n");
                     alarm_update = 0;
@@ -109,26 +131,67 @@ while (1){
                             i=0;
            }
         break;
+    case setalarm:
+        if(time_update){
+                   commandWrite(0xC2);
+                    if(hours<10){
+                        sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
+                    }
+                    else
+                        sprintf(currenttime,"%02d:%02d:%02d %cM",hours,mins,secs, m);
+                    while(!(currenttime[i]=='\0')){                            //print time until null
+                                     dataWrite(currenttime[i]);
+                                     i++;
+                                     }
+                                     i=0;
+                       }
+        commandWrite(0x90);
+               if(alarmhours<10){
+                   sprintf(alarmtime,"ALARM:%01d:%02d %cM",alarmhours,alarmmins,a);
+               }
+               else
+                   sprintf(alarmtime,"ALARM:%02d:%02d %cM",alarmhours,alarmmins,a);
+               while(!(alarmtime[i]=='\0')){
+                                       dataWrite(alarmtime[i]);
+                                               i++;
+                                               }
+                                               i=0;
+}
     }
 }
-}
+
 void RTC_Init(){
     //Initialize time to 2:45:55 pm
 //    RTC_C->TIM0 = 0x2D00;  //45 min, 0 secs
     RTC_C->CTL0 = (0xA500);
     RTC_C->CTL13 = 0;
 
-    RTC_C->TIM0 = 55<<8 | 45;//45 min, 55 secs
-    RTC_C->TIM1 = 1<<8 | 11;  //Monday, 2 pm
+    RTC_C->TIM0 = 45<<8 | 45;//45 min, 55 secs
+    RTC_C->TIM1 = 1<<8 | 14;  //Monday, 2 pm
     RTC_C->YEAR = 2018;
     //Alarm at 2:46 pm
     RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
     RTC_C->ADOWDAY = 0;
     RTC_C->PS1CTL = 0b0010;  //1/64 second interrupt is 0b0010 a 1 second interupt is
 
+//*******************************************Dylan left off here************************
+    alarmmins = RTC_C->AMINHR & 0x003F;
+
+           if((RTC_C->AMINHR & 0x1F00) > 12<<8){
+               alarmhours =  ((RTC_C->AMINHR & 0x1F00) - 12<<8);
+               a = 'P';
+           }
+           else {
+               a = 'A';
+               alarmhours = (RTC_C->AMINHR & 0x1F00);
+           }
+//***************************************************************************************
+
     RTC_C->CTL0 = (0xA500) | BIT5; //turn on interrupt
     RTC_C->CTL13 = 0;
     NVIC_EnableIRQ(RTC_C_IRQn);
+
+
 
 }
 
@@ -203,7 +266,16 @@ void PORT3_IRQHandler()
     }
     if(status & BIT5) //set alarm
     {
-
+        state = setalarm;
+        set_alarm++;
+        if(set_alarm == 2){
+            houradjust = 0;
+        }
+        if(set_alarm == 3){
+            minadjust = 0;
+            state = clock;
+            set_alarm = 0;
+        }
     }
     if(status & BIT6) //set time
     {
@@ -224,7 +296,8 @@ void PORT3_IRQHandler()
     {
         //sets the alarm for 10 minutes later for the snooze function
         //acts as the DOWN button for when times are entered
-        if(state == settime && set_time == 1){
+        if(state == settime){
+        if( set_time == 1){
             houradjust=1;
 
          if(RTC_C->TIM1 > 1){
@@ -235,7 +308,7 @@ void PORT3_IRQHandler()
              RTC_C->TIM1 = 24;
          }
         }
-        if(state == settime && set_time == 2)
+        if( set_time == 2)
         {
             minadjust = 1;
 
@@ -247,6 +320,20 @@ void PORT3_IRQHandler()
                 RTC_C->TIM0 = ((RTC_C->TIM0<<8 & 0xFF00)+59);
             }
         }
+        }
+//************************************Dylan left off here*****************************
+        if(state == setalarm){
+            if(set_alarm == 1){
+                houradjust = 1;
+                if((RTC_C->AMINHR & 0x001F) > 1){
+                RTC_C->AMINHR = ((RTC_C->AMINHR & 0x001F)-1<<5);
+                }
+                if((RTC_C->AMINHR & 0x001F) == 1){
+                    RTC_C->AMINHR = (RTC_C->AMINHR + 23<<5);
+                }
+            }
+        }
+//******************************************************************************************
 
     }
     if(status & BIT0) //On/Off/Up
