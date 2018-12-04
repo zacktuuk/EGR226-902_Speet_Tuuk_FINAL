@@ -1,6 +1,14 @@
 #include "msp.h"
 #include <stdio.h>
 #include <string.h>
+#define HALFPLUS 3000000
+#define MAX_NOTE 2 // How many notes are in the song below
+#define E4 329.63
+#define REST 0
+#define BREATH_TIME 50000
+
+float speed = 1;
+
 /*
  * Dylan Speet and Zachary Tuuk
  * 11/27/2018 Start
@@ -12,17 +20,28 @@ enum states{
     setalarm,
     settime,
     clock,
-    snooze
+    snooze,
+    alarm
 };
 enum states state = clock;
 int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0, alarm_status = 1;
 uint8_t  secs, hour_update;
-int alarmhours = 14, alarmmins = 51, status = 0, wakeupsequence = 0;
+int alarmhours = 14, alarmmins = 46, status = 0, wakeupsequence = 0, alarm_sound;
 char m, a;
 float volt, celsius, fahrenheit, duty = 0.0004;
 char temperature[12];
 char astatus[10];
+int note = 0;       //The note in the music sequence we are on
+int breath = 0;
 
+float music_note_sequence[][2] = {
+                                 {E4,HALFPLUS},
+                                 {REST,HALFPLUS},
+};
+
+
+void P2_Init();
+void SetupTimer32s();
 void alarm_Status();
 void wake_Up_Lights();
 void return_ADC();
@@ -50,13 +69,16 @@ char doublespace[2] = "  ";                                //used to write blank
     LCD_init();
     P4_Init_ADC();
     ADC14_Init();
+    SetupTimer32s();
 
 while (1){
     wake_Up_Lights();
     return_ADC();
     alarm_Status();
     switch (state){
+
     case clock:
+        play_alarm();
         if(time_update){
             commandWrite(0x80);
              if(hours<10){
@@ -100,8 +122,9 @@ while (1){
                                         }
                                         i=0;
                 if(alarm_update){
+                    if(alarm_status==0)
+                        alarm_update=0;
                     printf("ALARM\n");
-                    alarm_update = 0;
                 }
         break;
 
@@ -367,6 +390,37 @@ void PORT3_IRQHandler()
     {
         //sets the alarm for 10 minutes later for the snooze function
         //acts as the DOWN button for when times are entered
+        if(alarm_update==1)
+        {
+            int first_snooze=0;
+            if(alarmmins <= 49 && first_snooze==0){
+                alarmmins = alarmmins +10;
+                first_snooze = 1;
+            }
+            if(alarmmins >=50 && alarmmins!=60 && first_snooze==0){
+                alarmmins = alarmmins-50;
+                first_snooze==1;
+            if(alarmhours <= 23){
+                alarmhours = alarmhours +1;
+            }
+            if (alarmhours == 24){
+                alarmhours = 0;
+              }
+            }
+            if(alarmmins == 60 && first_snooze==0){
+                alarmmins == 0;
+                first_snooze==1;
+            if(alarmhours <= 23){
+                alarmhours = alarmhours +1;
+            }
+            if (alarmhours == 24){
+                alarmhours = 0;
+              }
+            }
+            alarm_update=0;
+            RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);
+            state = clock;
+        }
         if(state == settime){
         if( set_time == 1){
             houradjust=1;
@@ -422,6 +476,14 @@ RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 ar
 //        turns the alarm off if it is going off
 //        turns off the alarm if warm up lights sequence has started 5 min before alarm time
 //        acts as the UP button for when times are entered
+        if(alarm_update==1)
+        {
+            TIMER_A0->CCR[0] = 0;                                   //Set output of TimerA to 0
+            TIMER_A0->CCR[1] = 0;
+            TIMER_A0->CCR[2] = 0;
+            alarm_update=0;
+            state = clock;
+        }
         if(state == settime && set_time == 1){
             houradjust=1;
                 if((RTC_C->TIM1>>8) < 24){
@@ -597,6 +659,7 @@ void delay_ms(unsigned ms)
     SysTick -> VAL =0;                    //any write to CVR clears it
 
        while((SysTick -> CTRL & 0x00010000)==0);
+
 }
 void delay_micro(unsigned microsec)
 {
@@ -648,7 +711,8 @@ void return_ADC()
 {
     static volatile uint16_t result;
 
-    ADC14->CTL0 |= BIT0;                                       //starts conversion sequence
+    ADC14->CTL0 |= ADC14_CTL0_SC;                                       //starts conversion sequence
+    while(!(ADC14->IFGR0 & BIT0));
     result = ADC14->MEM[0];                                    //stores ADC value into result
     volt   = (result*3.3)/16384;                               //calculates voltage from ADC value
     celsius = ((volt*1000)-500)/10;
@@ -662,6 +726,16 @@ void return_ADC()
     }
     i=0;
 }
+//void ADC_IRQHandler()
+//{
+//    if(ADC14->IFGR0 & BIT0)                             // Table 20-14. ADC14IFGR0 Register Description of Reference Manual says interrupt flag will be at BIT0 for ADC14MEM0
+//       {
+//           ADC14->MCTL[1]       =   0;
+//           ADC14->MCTL[2]       =   22;
+//           ADC14->CLRIFGR0     &=  ~BIT0;                  // Clear MEM0 interrupt flag
+//       }
+//    ADC14->CLRIFGR1     &=    ~0b1111110;                 // Clear all IFGR1 Interrupts (Bits 6-1.  These could trigger an interrupt and we are checking them for now.)
+//}
 void wake_Up_Lights()
 {
     //float duty = 0.01;
@@ -706,4 +780,113 @@ void alarm_Status()
         i++;
     }
     i=0;
+}
+/*-------------------------------------------------------------------------------------------------------------------------------
+ *
+ * void T32_INT2_IRQHandler()
+ *
+ * Interrupt Handler for Timer 2.  The name of this function is set in startup_msp432p401r_ccs.c
+ *
+ * This handler clears the status of the interrupt for Timer32_2
+ *
+ * Sets up the next note to play in sequence and loads it into TimerA for play back at that frequency.
+ * Enables a new Timer32 value to interrupt after the note is complete.
+ *
+-------------------------------------------------------------------------------------------------------------------------------*/
+
+void T32_INT2_IRQHandler()
+{
+    TIMER32_2->INTCLR = 1;                                      //Clear interrupt flag so it does not interrupt again immediately.
+    if(breath) {                                                //Provides separation between notes
+        TIMER_A0->CCR[0] = 0;                                   //Set output of TimerA to 0
+        TIMER_A0->CCR[1] = 0;
+        TIMER_A0->CCR[2] = 0;
+        TIMER32_2->LOAD = BREATH_TIME;                          //Load in breath time to interrupt again
+        breath = 0;                                             //Next Timer32 interrupt is no longer a breath, but is a note
+    }
+    else {                                                      //If not a breath (a note)
+        TIMER32_2->LOAD = (music_note_sequence[note][1] - 1)*speed;     //Load into interrupt count down the length of this note
+        if(music_note_sequence[note][0] == REST) {              //If note is actually a rest, load in nothing to TimerA
+            TIMER_A0->CCR[0] = 0;
+            TIMER_A0->CCR[1] = 0;
+            TIMER_A0->CCR[2] = 0;
+        }
+        else {
+            TIMER_A0->CCR[0] = 3000000 / music_note_sequence[note][0];  //Math in an interrupt is bad behavior, but shows how things are happening.  This takes our clock and divides by the frequency of this note to get the period.
+            TIMER_A0->CCR[1] = 1500000 / music_note_sequence[note][0];  //50% duty cycle
+            TIMER_A0->CCR[2] = TIMER_A0->CCR[0];                        //Had this in here for fun with interrupts.  Not used right now
+        }
+        note = note + 1;                                                //Next note
+        if(note >= MAX_NOTE) {                                          //Go back to the beginning if at the end
+            note = 0;
+        }
+        breath = 1;                                             //Next time through should be a breath for separation.
+    }
+}
+
+/*-------------------------------------------------------------------------------------------------------------------------------
+ *
+ * void TA0_N_IRQHandler()
+ *
+ * Interrupt Handler for Timer A0.  The name of this function is set in startup_msp432p401r_ccs.c
+ *
+ * This handler clears the status of the interrupt for Timer32_A0 CCTL 1 and 2
+ *
+ * Toggles P2.0 for every interrupt (LED2 Red) through cooperation with Timer_A0
+ * Turns on when CCTL1 interrupts.  Turns off with CCTL2 interrupts.
+ *
+-------------------------------------------------------------------------------------------------------------------------------*/
+
+void TA0_N_IRQHandler()
+{
+    if(TIMER_A0->CCTL[1] & BIT0) {                  //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
+    }
+    if(TIMER_A0->CCTL[2] & BIT0) {                  //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
+    }
+}
+/*-------------------------------------------------------------------------------------------------------------------------------
+ *
+ * void SetupTimer32s()
+ *
+ * Configures Timer32_1 as a single shot (runs once) timer that does not interrupt so the value must be monitored.
+ * Configures Timer32_2 as a single shot (runs once) timer that does interrupt and will run the interrupt handler 1 second
+ * after this function is called (and the master interrupt is enabled).
+ *
+-------------------------------------------------------------------------------------------------------------------------------*/
+
+void SetupTimer32s()
+{
+    TIMER_A0->CCR[0] = 0;                           // Turn off timerA to start
+    TIMER_A0->CCTL[1] = 0b0000000011110100;         // Setup Timer A0_1 Reset/Set, Interrupt, No Output
+    TIMER_A0->CCR[1] = 0;                           // Turn off timerA to start
+    TIMER_A0->CCTL[2] = 0b0000000011110100;         // Setup Timer A0_2 Reset/Set, Interrupt, No Output
+    TIMER_A0->CCR[2] = 0;                           // Turn off timerA to start
+    TIMER_A0->CTL = 0b0000001000010100;             // Count Up mode using SMCLK, Clears, Clear Interrupt Flag
+
+    P2->SEL0 |= BIT4;                               // Setup the P2.4 to be an output for the song.  This should drive a sounder.
+    P2->SEL1 &= ~BIT4;
+    P2->DIR |= BIT4;
+}
+
+void P2_Init()
+{
+    P2->SEL0 |=  BIT0;
+    P2->SEL1 &= ~BIT0;
+    P2->DIR  |=  BIT0;
+    P2->OUT  &= ~BIT0;
+}
+void play_alarm()
+{
+    int time = secs;
+    if(time%2==0 && alarm_update==1 && alarm_status==1){
+        TIMER_A0->CCR[0] = 9000;
+        TIMER_A0->CCR[1] = 4500;
+        TIMER_A0->CCR[2] = TIMER_A0->CCR[0];
+    }
+    else
+    {
+        TIMER_A0->CCR[0] = 0;
+        TIMER_A0->CCR[1] = 0;
+        TIMER_A0->CCR[2] = 0;
+    }
 }
