@@ -17,9 +17,9 @@ enum states{
 enum states state = clock;
 int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0, alarm_status = 1;
 uint8_t  secs, hour_update;
-int alarmhours, alarmmins, status = 0;
+int alarmhours = 14, alarmmins = 51, status = 0, wakeupsequence = 0;
 char m, a;
-float volt, celsius, fahrenheit;
+float volt, celsius, fahrenheit, duty = 0.0004;
 char temperature[12];
 char astatus[10];
 
@@ -50,17 +50,9 @@ char doublespace[2] = "  ";                                //used to write blank
     LCD_init();
     P4_Init_ADC();
     ADC14_Init();
-while (1){
-    alarmmins = RTC_C->AMINHR & 0x003F;
 
-             if((RTC_C->AMINHR & 0x1F00) > 12<<8){
-                 alarmhours =  ((RTC_C->AMINHR & 0x1F00)>>8) - 12;
-                 a = 'P';
-             }
-             else {
-                 a = 'A';
-                 alarmhours = ((RTC_C->AMINHR & 0x1F00)>>8);
-             }
+while (1){
+    wake_Up_Lights();
     return_ADC();
     alarm_Status();
     switch (state){
@@ -79,11 +71,29 @@ while (1){
                               i=0;
                 }
         commandWrite(0x90);
-        if(alarmhours<10){
-            sprintf(alarmtime,"ALARM:%01d:%02d %cM",alarmhours,alarmmins,a);
+        if((alarmhours)<10){
+            if(alarmhours == 0){
+                sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours+12,alarmmins);
+            }
+            else
+                sprintf(alarmtime,"ALARM: %01d:%02d AM",alarmhours,alarmmins);
         }
-        else
-            sprintf(alarmtime,"ALARM:%02d:%02d %cM",alarmhours,alarmmins,a);
+        if(alarmhours >= 10 && alarmhours <=12){
+            if(alarmhours == 12)
+                sprintf(alarmtime,"ALARM:%02d:%02d PM",alarmhours,alarmmins);
+            else
+              sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours,alarmmins);
+        }
+        if(alarmhours >= 12)
+        {
+            if((alarmhours-12)>=10)
+             sprintf(alarmtime,"ALARM:%02d:%02d PM",alarmhours-12,alarmmins);
+            if((alarmhours-12)<10)
+                if((alarmhours-12)==0)
+                    sprintf(alarmtime,"ALARM:%02d:%02d PM",(alarmhours-12)+12,alarmmins);
+                else
+                sprintf(alarmtime,"ALARM: %01d:%02d PM",alarmhours-12,alarmmins);
+        }
         while(!(alarmtime[i]=='\0')){
                                 dataWrite(alarmtime[i]);
                                         i++;
@@ -155,21 +165,89 @@ while (1){
                                      }
                                      i=0;
                        }
-        commandWrite(0x90);
-               if(alarmhours<10){
-                   sprintf(alarmtime,"ALARM:%01d:%02d %cM",alarmhours,alarmmins,a);
-               }
-               else
-                   sprintf(alarmtime,"ALARM:%02d:%02d %cM",alarmhours,alarmmins,a);
-               while(!(alarmtime[i]=='\0')){
-                                       dataWrite(alarmtime[i]);
-                                               i++;
-                                               }
-                                               i=0;
+        if(set_alarm == 1 && houradjust == 0){
+                commandWrite(0x96);
+                while(!(doublespace[i]=='\0')){                            //print doublespace until null
+                     dataWrite(doublespace[i]);
+                     i++;
+                     }
+                     i=0;
+            }
+            if(houradjust == 1 && set_alarm == 1)
+            {
+                commandWrite(0x90);
+                      if((alarmhours)<10){
+                          if(alarmhours == 0){
+                              sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours+12,alarmmins);
+                          }
+                          else
+                              sprintf(alarmtime,"ALARM: %01d:%02d AM",alarmhours,alarmmins);
+                      }
+                      if(alarmhours >= 10 && alarmhours <=12){
+                          if(alarmhours == 12)
+                              sprintf(alarmtime,"ALARM:%02d:%02d PM",alarmhours,alarmmins);
+                          else
+                            sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours,alarmmins);
+                      }
+                      if(alarmhours >= 12)
+                      {
+                          if((alarmhours-12)>=10)
+                           sprintf(alarmtime,"ALARM:%02d:%02d PM",alarmhours-12,alarmmins);
+                          if((alarmhours-12)<10)
+                              if((alarmhours-12)==0)
+                                  sprintf(alarmtime,"ALARM:%02d:%02d PM",(alarmhours-12)+12,alarmmins);
+                              else
+                              sprintf(alarmtime,"ALARM: %01d:%02d PM",alarmhours-12,alarmmins);
+                      }
+                      while(!(alarmtime[i]=='\0')){
+                                              dataWrite(alarmtime[i]);
+                                                      i++;
+                                                      }
+                                                      i=0;
+            }
+            if(set_alarm == 2 && minadjust == 0){
+                commandWrite(0x99);
+                           while(!(doublespace[i]=='\0')){                            //print doublespace until null
+                                dataWrite(doublespace[i]);
+                                i++;
+                                }
+                                i=0;
+            }
+            if(set_alarm == 2 && minadjust ==1)
+            {
+                commandWrite(0x90);
+                      if((alarmhours)<10){
+                          if(alarmhours == 0){
+                              sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours+12,alarmmins);
+                          }
+                          else
+                              sprintf(alarmtime,"ALARM: %01d:%02d AM",alarmhours,alarmmins);
+                      }
+                      if(alarmhours >= 10 && alarmhours <=12){
+                          if(alarmhours == 12)
+                              sprintf(alarmtime,"ALARM:%02d:%02d PM",alarmhours,alarmmins);
+                          else
+                            sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours,alarmmins);
+                      }
+                      if(alarmhours >= 12)
+                      {
+                          if((alarmhours-12)>=10)
+                           sprintf(alarmtime,"ALARM:%02d:%02d PM",alarmhours-12,alarmmins);
+                          if((alarmhours-12)<10)
+                              if((alarmhours-12)==0)
+                                  sprintf(alarmtime,"ALARM:%02d:%02d PM",(alarmhours-12)+12,alarmmins);
+                              else
+                              sprintf(alarmtime,"ALARM: %01d:%02d PM",alarmhours-12,alarmmins);
+                      }
+                      while(!(alarmtime[i]=='\0')){
+                                              dataWrite(alarmtime[i]);
+                                                      i++;
+                                                      }
+                                                      i=0;
+            }
 }
-    }
 }
-
+}
 void RTC_Init(){
     //Initialize time to 2:45:55 pm
 //    RTC_C->TIM0 = 0x2D00;  //45 min, 0 secs
@@ -180,20 +258,9 @@ void RTC_Init(){
     RTC_C->TIM1 = 1<<8 | 14;  //Monday, 2 pm
     RTC_C->YEAR = 2018;
     //Alarm at 2:46 pm
-    RTC_C->AMINHR = 14<<8 | 46 | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
+    RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
     RTC_C->ADOWDAY = 0;
     RTC_C->PS1CTL = 0b0010;  //1/64 second interrupt is 0b0010 a 1 second interupt is
-
-    alarmmins = RTC_C->AMINHR & 0x003F;
-
-           if((RTC_C->AMINHR & 0x1F00) > 12<<8){
-               alarmhours =  ((RTC_C->AMINHR & 0x1F00)>>8) - 12;
-               a = 'P';
-           }
-           else {
-               a = 'A';
-               alarmhours = ((RTC_C->AMINHR & 0x1F00)>>8);
-           }
 
     RTC_C->CTL0 = (0xA500) | BIT5; //turn on interrupt
     RTC_C->CTL13 = 0;
@@ -256,10 +323,6 @@ void RTC_C_IRQHandler()
 }
 void PORT3_IRQHandler()
 {
-    TIMER_A3 -> CTL = 0b01000010110;
-    TIMER_A3->CCR[0] = 1500;
-    NVIC_EnableIRQ(TA3_0_IRQn);
-
     status = P3->IFG;
     P3->IFG = 0;
     if(status & BIT2) //second timing
@@ -329,20 +392,28 @@ void PORT3_IRQHandler()
             }
         }
         }
-//************************************Dylan left off here*****************************
         if(state == setalarm){
             if(set_alarm == 1){
                 houradjust = 1;
-                if((RTC_C->AMINHR & 0x1F00) > 1<<8){
-                RTC_C->AMINHR = ((RTC_C->AMINHR & 0x1F00)-1<<8);
+                if(alarmhours >= 0){
+               alarmhours = alarmhours - 1;
                 }
-                if((RTC_C->AMINHR & 0x1F) == 1<<8){
-                    RTC_C->AMINHR = ((RTC_C->AMINHR & 0x1F00) + 23<<8);
+                if(alarmhours < 0){
+                    alarmhours = 23;
                 }
             }
+            if(set_alarm == 2){
+                minadjust = 1;
+                if(alarmmins > 0 )
+                {
+                    alarmmins = alarmmins -1;
+                }
+               if(alarmmins == 0){
+                   alarmmins = 59;
+               }
+            }
+RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
         }
-//******************************************************************************************
-
     }
     if(status & BIT0) //On/Off/Up
     {
@@ -372,7 +443,25 @@ void PORT3_IRQHandler()
                             RTC_C->TIM0 = 0<<8;
                         }
         }
-        if(state != settime || state != setalarm)
+        if(state == setalarm && set_alarm == 1){
+            houradjust = 1;
+            if(alarmhours <= 23){
+                alarmhours = alarmhours +1;
+            }
+            if (alarmhours == 24){
+                alarmhours = 0;
+            }
+        }
+        if(state == setalarm && set_alarm == 2){
+            minadjust = 1;
+            if(alarmmins <= 59){
+                alarmmins = alarmmins +1;
+            }
+            if(alarmmins == 60){
+                alarmmins = 0;
+            }
+        }
+        if(state != settime && state != setalarm)
         {
             if(alarm_status == 1 && next_time==1)
             {
@@ -387,6 +476,7 @@ void PORT3_IRQHandler()
                 RTC_C->AMINHR |= (BIT(15)|BIT7);
             }
         }
+RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
 
     }
 }
@@ -449,8 +539,8 @@ P1->OUT &=~BIT6;
 
     TIMER_A1->CTL       = 0b0000001000010100;
     TIMER_A1->CCR[0]    = 2999;
-    TIMER_A1->CCR[3]    = 0;
-    TIMER_A1->CCR[4]    = 0;
+    TIMER_A1->CCR[3]    = (3000*duty)-1;
+    TIMER_A1->CCR[4]    = (3000*duty)-1;
     TIMER_A1->CCTL[3]   = 0xE0;
     TIMER_A1->CCTL[4]   = 0xE0;
 
@@ -478,7 +568,7 @@ nibble = (byte & 0xF0)>>4;         //copy in most significant bits by anding wit
 pushNibble(nibble);
 nibble = byte & 0x0F;              //copy in least significant bits by anding with 00001111b
 pushNibble(nibble);
-delay_micro(10000);                  //delay for 100 microseconds
+delay_micro(1000);                  //delay for 100 microseconds
 }
 void pushNibble (uint8_t nibble)                                          //referenced from Kandalaf Lecture
 {
@@ -537,6 +627,8 @@ void LCD_init()
     delay_micro(100);
     commandWrite(6);
     delay_ms(10);
+
+    commandWrite(0x0C);
 }
 void P4_Init_ADC()
 {
@@ -561,7 +653,6 @@ void return_ADC()
     volt   = (result*3.3)/16384;                               //calculates voltage from ADC value
     celsius = ((volt*1000)-500)/10;
     fahrenheit = ((celsius*9)/5)+32;
-    printf("Temperature in F: %f\n\n", fahrenheit);
     sprintf(temperature," Temp: %.1f F ",fahrenheit);
     commandWrite(0xCF);
     while(!(temperature[i]=='\0'))
@@ -570,19 +661,33 @@ void return_ADC()
         i++;
     }
     i=0;
-    __delay_cycles(1500000);                                   //delay of .5s
 }
-//void wake_Up_Lights()
-//{
-//    //float duty = 0.01;
-//    if((alarmhours==hours) && ((alarmmins-mins)<=5) && (a == m))
-//    {
-//        TIMER_A1->CCR[3] = (3000*duty)-1;
-//        TIMER_A1->CCR[4] = (3000*duty)-1;
-//        duty+=0.01;
-//        __delay_cycles(9000000);
-//    }
-//}
+void wake_Up_Lights()
+{
+    //float duty = 0.01;
+    int x = RTC_C->TIM1 & 0x00FF;
+    int y = (alarmmins - ((RTC_C->TIM0 & 0xFF00)>>8));
+    int w = (RTC_C->TIM0 & 0x00FF);
+    TIMER_A1->CCR[3] = (3000*duty)-1;
+    TIMER_A1->CCR[4] = (3000*duty)-1;
+    if(x == alarmhours && y <= 5 )
+    {
+        wakeupsequence = 1;
+    }
+
+
+    if(wakeupsequence)
+    {
+//               static int check = 0;
+//               check = (alarmmins*60) - ((RTC_C->TIM0 & 0x00FF));
+//               if(check%3 = 0)
+        if(w%3 == 0){
+               duty+=0.01;
+//               TIMER_A1->CCR[3] = (3000*duty)-1;
+//               TIMER_A1->CCR[4] = (3000*duty)-1;
+        }
+    }
+}
 void alarm_Status()
 {
     if(alarm_status == 1)
@@ -601,7 +706,4 @@ void alarm_Status()
         i++;
     }
     i=0;
-}
-void TA3_0_IRQHandler() {
-    TIMER_A3->CTL &=~ (BIT0|BIT1);
 }
