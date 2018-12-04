@@ -17,7 +17,7 @@ enum states{
 enum states state = clock;
 int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0, alarm_status = 1;
 uint8_t  secs, hour_update;
-int alarmhours, alarmmins;
+int alarmhours, alarmmins, status = 0;
 char m, a;
 float volt, celsius, fahrenheit;
 char temperature[12];
@@ -51,16 +51,16 @@ char doublespace[2] = "  ";                                //used to write blank
     P4_Init_ADC();
     ADC14_Init();
 while (1){
-//    alarmmins = RTC_C->AMINHR & 0x003F;
-//
-//             if((RTC_C->AMINHR & 0x1F00) > 12<<8){
-//                 alarmhours =  (RTC_C->AMINHR) - 12<<8;
-//                 a = 'P';
-//             }
-//             else {
-//                 a = 'A';
-//                 alarmhours = (RTC_C->AMINHR & 0x1F00);
-//             }
+    alarmmins = RTC_C->AMINHR & 0x003F;
+
+             if((RTC_C->AMINHR & 0x1F00) > 12<<8){
+                 alarmhours =  ((RTC_C->AMINHR & 0x1F00)>>8) - 12;
+                 a = 'P';
+             }
+             else {
+                 a = 'A';
+                 alarmhours = ((RTC_C->AMINHR & 0x1F00)>>8);
+             }
     return_ADC();
     alarm_Status();
     switch (state){
@@ -143,7 +143,7 @@ while (1){
         break;
     case setalarm:
         if(time_update){
-                   commandWrite(0xC0);
+                   commandWrite(0x80);
                     if(hours<10){
                         sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
                     }
@@ -184,25 +184,20 @@ void RTC_Init(){
     RTC_C->ADOWDAY = 0;
     RTC_C->PS1CTL = 0b0010;  //1/64 second interrupt is 0b0010 a 1 second interupt is
 
-//*******************************************Dylan left off here************************
     alarmmins = RTC_C->AMINHR & 0x003F;
 
            if((RTC_C->AMINHR & 0x1F00) > 12<<8){
-               alarmhours =  ((RTC_C->AMINHR & 0x1F00) - 12<<8);
+               alarmhours =  ((RTC_C->AMINHR & 0x1F00)>>8) - 12;
                a = 'P';
            }
            else {
                a = 'A';
-               alarmhours = (RTC_C->AMINHR & 0x1F00);
+               alarmhours = ((RTC_C->AMINHR & 0x1F00)>>8);
            }
-//***************************************************************************************
 
     RTC_C->CTL0 = (0xA500) | BIT5; //turn on interrupt
     RTC_C->CTL13 = 0;
     NVIC_EnableIRQ(RTC_C_IRQn);
-
-
-
 }
 
 void RTC_C_IRQHandler()
@@ -261,8 +256,11 @@ void RTC_C_IRQHandler()
 }
 void PORT3_IRQHandler()
 {
-    int status = P3->IFG;
-  delay_ms(50);
+    TIMER_A3 -> CTL = 0b01000010110;
+    TIMER_A3->CCR[0] = 1500;
+    NVIC_EnableIRQ(TA3_0_IRQn);
+
+    status = P3->IFG;
     P3->IFG = 0;
     if(status & BIT2) //second timing
     {
@@ -335,11 +333,11 @@ void PORT3_IRQHandler()
         if(state == setalarm){
             if(set_alarm == 1){
                 houradjust = 1;
-                if((RTC_C->AMINHR & 0x001F) > 1){
-                RTC_C->AMINHR = ((RTC_C->AMINHR & 0x001F)-1<<5);
+                if((RTC_C->AMINHR & 0x1F00) > 1<<8){
+                RTC_C->AMINHR = ((RTC_C->AMINHR & 0x1F00)-1<<8);
                 }
-                if((RTC_C->AMINHR & 0x001F) == 1){
-                    RTC_C->AMINHR = (RTC_C->AMINHR + 23<<5);
+                if((RTC_C->AMINHR & 0x1F) == 1<<8){
+                    RTC_C->AMINHR = ((RTC_C->AMINHR & 0x1F00) + 23<<8);
                 }
             }
         }
@@ -603,4 +601,7 @@ void alarm_Status()
         i++;
     }
     i=0;
+}
+void TA3_0_IRQHandler() {
+    TIMER_A3->CTL &=~ (BIT0|BIT1);
 }
