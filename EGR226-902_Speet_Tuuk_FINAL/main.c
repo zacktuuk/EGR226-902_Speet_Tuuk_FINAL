@@ -15,11 +15,19 @@ enum states{
     snooze
 };
 enum states state = clock;
-int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0;;
+int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0, alarm_status = 1;
 uint8_t  secs, hour_update;
 int alarmhours, alarmmins;
 char m, a;
+float volt, celsius, fahrenheit;
+char temperature[12];
+char astatus[10];
 
+void alarm_Status();
+void wake_Up_Lights();
+void return_ADC();
+void P4_Init_ADC();
+void ADC14_Init();
 void initialization();
 void LCD_init();
 void RTC_Init();
@@ -34,14 +42,14 @@ void main(void)
 {
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
 char currenttime[11];
-char temperature[11];
 char alarmtime[14];
 char doublespace[2] = "  ";                                //used to write blanks
     initialization();                               //initialize all pins, timers, and interrupts
     RTC_Init();
     __enable_interrupt();
     LCD_init();
-
+    P4_Init_ADC();
+    ADC14_Init();
 while (1){
 //    alarmmins = RTC_C->AMINHR & 0x003F;
 //
@@ -53,10 +61,12 @@ while (1){
 //                 a = 'A';
 //                 alarmhours = (RTC_C->AMINHR & 0x1F00);
 //             }
+    return_ADC();
+    alarm_Status();
     switch (state){
     case clock:
         if(time_update){
-            commandWrite(0xC2);
+            commandWrite(0x80);
              if(hours<10){
                  sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
              }
@@ -87,7 +97,7 @@ while (1){
 
     case settime:
         if(set_time == 1 && houradjust == 0){
-            commandWrite(0xC2);
+            commandWrite(0x80);
             while(!(doublespace[i]=='\0')){                            //print doublespace until null
                  dataWrite(doublespace[i]);
                  i++;
@@ -96,7 +106,7 @@ while (1){
         }
         if(houradjust == 1 && set_time == 1)
         {
-            commandWrite(0xC2);
+            commandWrite(0x80);
         if(hours<10){
             sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
         }
@@ -109,7 +119,7 @@ while (1){
                          i=0;
         }
         if(set_time == 2 && minadjust == 0){
-            commandWrite(0xC5);
+            commandWrite(0x83);
                        while(!(doublespace[i]=='\0')){                            //print doublespace until null
                             dataWrite(doublespace[i]);
                             i++;
@@ -118,7 +128,7 @@ while (1){
         }
         if(set_time == 2 && minadjust ==1)
         {
-               commandWrite(0xC2);
+               commandWrite(0x80);
            if(hours<10){
                sprintf(currenttime," %01d:%02d:00 %cM",hours,mins, m);
            }
@@ -133,7 +143,7 @@ while (1){
         break;
     case setalarm:
         if(time_update){
-                   commandWrite(0xC2);
+                   commandWrite(0xC0);
                     if(hours<10){
                         sprintf(currenttime," %01d:%02d:%02d %cM",hours,mins,secs, m);
                     }
@@ -338,10 +348,11 @@ void PORT3_IRQHandler()
     }
     if(status & BIT0) //On/Off/Up
     {
-        //turns the alarm on/off when it hasn't sounded yet
-        //turns the alarm off if it is going off
-        //turns pff the alarm if warm up lights sequence has started 5 min before alarm time
-        //acts as the UP button for when times are entered
+        int next_time = 1;
+//        turns the alarm on/off when it hasn't sounded yet
+//        turns the alarm off if it is going off
+//        turns off the alarm if warm up lights sequence has started 5 min before alarm time
+//        acts as the UP button for when times are entered
         if(state == settime && set_time == 1){
             houradjust=1;
                 if((RTC_C->TIM1>>8) < 24){
@@ -363,6 +374,22 @@ void PORT3_IRQHandler()
                             RTC_C->TIM0 = 0<<8;
                         }
         }
+        if(state != settime || state != setalarm)
+        {
+            if(alarm_status == 1 && next_time==1)
+            {
+                next_time=0;
+                alarm_status = 0;
+                RTC_C->AMINHR &= ~(BIT(15)|BIT7);
+            }
+            if(alarm_status == 0 && next_time==1)
+            {
+                next_time=0;
+                alarm_status = 1;
+                RTC_C->AMINHR |= (BIT(15)|BIT7);
+            }
+        }
+
     }
 }
 void initialization(){
@@ -416,6 +443,19 @@ P1->OUT &=~BIT6;
     P3->IFG = 0;
     NVIC_EnableIRQ(PORT3_IRQn);
 //Buttons done***************************************************************************************
+
+//Wake up lights***********************************************************************************
+    P7->SEL0 |=  (BIT4|BIT5);                         //Timer A pin
+    P7->SEL1 &= ~(BIT4|BIT5);
+    P7->DIR  |=  (BIT4|BIT5);
+
+    TIMER_A1->CTL       = 0b0000001000010100;
+    TIMER_A1->CCR[0]    = 2999;
+    TIMER_A1->CCR[3]    = 0;
+    TIMER_A1->CCR[4]    = 0;
+    TIMER_A1->CCTL[3]   = 0xE0;
+    TIMER_A1->CCTL[4]   = 0xE0;
+
 }
 void commandWrite(uint8_t command)
 {
@@ -499,4 +539,68 @@ void LCD_init()
     delay_micro(100);
     commandWrite(6);
     delay_ms(10);
+}
+void P4_Init_ADC()
+{
+    P4->SEL0 |= BIT1;                                          //initializes P4.1 to Analog input
+    P4->SEL1 |= BIT1;
+}
+void ADC14_Init()
+{
+    ADC14->CTL0    =  0;                                       //disables ADC for setup
+    ADC14->CTL0   |=  0b10000100001000000000001100010000;      //S/H pulse mode, 16 sample clocks on SMCLK
+    ADC14->CTL1    =  0b110000;                                //14 bit resolution
+    ADC14->CTL1   |=  0;                                       //converts to MEM0 register
+    ADC14->MCTL[0] =  14;                                      //MEM[0] has the value ADC14INCHx = 0
+    ADC14->CTL0   |=  0b10;                                    //Enables the ADC
+}
+void return_ADC()
+{
+    static volatile uint16_t result;
+
+    ADC14->CTL0 |= BIT0;                                       //starts conversion sequence
+    result = ADC14->MEM[0];                                    //stores ADC value into result
+    volt   = (result*3.3)/16384;                               //calculates voltage from ADC value
+    celsius = ((volt*1000)-500)/10;
+    fahrenheit = ((celsius*9)/5)+32;
+    printf("Temperature in F: %f\n\n", fahrenheit);
+    sprintf(temperature," Temp: %.1f F ",fahrenheit);
+    commandWrite(0xCF);
+    while(!(temperature[i]=='\0'))
+    {
+        dataWrite(temperature[i]);
+        i++;
+    }
+    i=0;
+    __delay_cycles(1500000);                                   //delay of .5s
+}
+//void wake_Up_Lights()
+//{
+//    //float duty = 0.01;
+//    if((alarmhours==hours) && ((alarmmins-mins)<=5) && (a == m))
+//    {
+//        TIMER_A1->CCR[3] = (3000*duty)-1;
+//        TIMER_A1->CCR[4] = (3000*duty)-1;
+//        duty+=0.01;
+//        __delay_cycles(9000000);
+//    }
+//}
+void alarm_Status()
+{
+    if(alarm_status == 1)
+    {
+        sprintf(astatus, "ALARM ON ");
+    }
+    if(alarm_status == 0)
+    {
+        sprintf(astatus, "ALARM OFF");
+
+    }
+    commandWrite(0xC0);
+    while(!(astatus[i]=='\0'))
+    {
+        dataWrite(astatus[i]);
+        i++;
+    }
+    i=0;
 }
