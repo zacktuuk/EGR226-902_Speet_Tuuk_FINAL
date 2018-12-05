@@ -1,14 +1,6 @@
 #include "msp.h"
 #include <stdio.h>
 #include <string.h>
-#define HALFPLUS 3000000
-#define MAX_NOTE 2 // How many notes are in the song below
-#define E4 329.63
-#define REST 0
-#define BREATH_TIME 50000
-
-float speed = 1;
-
 /*
  * Dylan Speet and Zachary Tuuk
  * 11/27/2018 Start
@@ -23,6 +15,29 @@ enum states{
     snooze,
     alarm
 };
+
+// Making a buffer of 100 characters for serial to store to incoming serial data
+#define BUFFER_SIZE 100
+char INPUT_BUFFER[BUFFER_SIZE];
+// initializing the starting position of used buffer and read buffer
+uint8_t storage_location = 0; // used in the interrupt to store new data
+uint8_t read_location = 0; // used in the main application to read valid data that hasn't been read yet
+
+void writeOutput(char *string); // write output charactrs to the serial port
+void readInput(char* string); // read input characters from INPUT_BUFFER that are valid
+void setup(); // Sets up P1.0 as an output to drive the on board LED
+void setupSerial(); // Sets up serial for use and enables interrupts
+
+char string[BUFFER_SIZE]; // Creates local char array to store incoming serial commands
+    char amin[3];
+    char ahour[3];
+    char cmin[3];
+    char chour[3];
+    char csec[3];
+    int currentmin, currenthour, currentsec;
+    int b = 0, c = 0, newcomm = 0;
+
+
 enum states state = clock;
 int time_update = 0, alarm_update = 0, i = 0, time_set = 0, ampm = 1, hours, mins, set_time = 0, houradjust = 0, minadjust = 0, set_alarm = 0, alarm_status = 1;
 uint8_t  secs, hour_update;
@@ -31,17 +46,12 @@ char m, a;
 float volt, celsius, fahrenheit, duty = 0.0004;
 char temperature[12];
 char astatus[10];
-int note = 0;       //The note in the music sequence we are on
-int breath = 0;
+char currenttime[11];
+char alarmtime[14];
 
-float music_note_sequence[][2] = {
-                                 {E4,HALFPLUS},
-                                 {REST,HALFPLUS},
-};
-
-
+void get_serial();
 void P2_Init();
-void SetupTimer32s();
+void Setupspeaker();
 void alarm_Status();
 void wake_Up_Lights();
 void return_ADC();
@@ -60,18 +70,25 @@ void delay_micro(unsigned microsec);      //delay for a microsecond delay
 void main(void)
 {
     WDT_A->CTL = WDT_A_CTL_PW | WDT_A_CTL_HOLD;     // stop watchdog timer
-char currenttime[11];
-char alarmtime[14];
+
 char doublespace[2] = "  ";                                //used to write blanks
     initialization();                               //initialize all pins, timers, and interrupts
     RTC_Init();
+    setupSerial();
+      INPUT_BUFFER[0]= '\0';
     __enable_interrupt();
     LCD_init();
     P4_Init_ADC();
     ADC14_Init();
-    SetupTimer32s();
+    Setupspeaker();
+
 
 while (1){
+    if(newcomm){
+    get_serial();
+    newcomm = 0;
+    }
+
     wake_Up_Lights();
     return_ADC();
     alarm_Status();
@@ -277,7 +294,7 @@ void RTC_Init(){
     RTC_C->CTL0 = (0xA500);
     RTC_C->CTL13 = 0;
 
-    RTC_C->TIM0 = 45<<8 | 45;//45 min, 55 secs
+    RTC_C->TIM0 = 40<<8 | 45;//45 min, 55 secs
     RTC_C->TIM1 = 1<<8 | 14;  //Monday, 2 pm
     RTC_C->YEAR = 2018;
     //Alarm at 2:46 pm
@@ -392,6 +409,7 @@ void PORT3_IRQHandler()
         //acts as the DOWN button for when times are entered
         if(alarm_update==1)
         {
+            alarm_status = 2;
             int first_snooze=0;
             if(alarmmins <= 49 && first_snooze==0){
                 alarmmins = alarmmins +10;
@@ -525,13 +543,13 @@ RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 ar
         }
         if(state != settime && state != setalarm)
         {
-            if(alarm_status == 1 && next_time==1)
+            if((alarm_status == 1 || alarm_status == 2) && next_time==1 )
             {
                 next_time=0;
                 alarm_status = 0;
                 RTC_C->AMINHR &= ~(BIT(15)|BIT7);
             }
-            if(alarm_status == 0 && next_time==1)
+            if((alarm_status == 0 || alarm_status == 2) && next_time==1)
             {
                 next_time=0;
                 alarm_status = 1;
@@ -742,25 +760,30 @@ void wake_Up_Lights()
     int x = RTC_C->TIM1 & 0x00FF;
     int y = (alarmmins - ((RTC_C->TIM0 & 0xFF00)>>8));
     int w = (RTC_C->TIM0 & 0x00FF);
-    TIMER_A1->CCR[3] = (3000*duty)-1;
-    TIMER_A1->CCR[4] = (3000*duty)-1;
-    if(x == alarmhours && y <= 5 )
+    TIMER_A0->CCR[3] = (9000*duty)-1;
+    TIMER_A0->CCR[2] = (9000*duty)-1;
+    if(x == alarmhours && (y <= 5) )
     {
-        wakeupsequence = 1;
-    }
-
-
-    if(wakeupsequence)
-    {
-//               static int check = 0;
-//               check = (alarmmins*60) - ((RTC_C->TIM0 & 0x00FF));
-//               if(check%3 = 0)
+//        wakeupsequence = 1;
         if(w%3 == 0){
-               duty+=0.01;
-//               TIMER_A1->CCR[3] = (3000*duty)-1;
-//               TIMER_A1->CCR[4] = (3000*duty)-1;
-        }
+         duty+=0.01;
+       //               TIMER_A1->CCR[3] = (3000*duty)-1;
+       //               TIMER_A1->CCR[4] = (3000*duty)-1;
+               }
     }
+
+
+//    if(wakeupsequence)
+//    {
+////               static int check = 0;
+////               check = (alarmmins*60) - ((RTC_C->TIM0 & 0x00FF));
+////               if(check%3 = 0)
+//        if(w%3 == 0){
+//               duty+=0.01;
+////               TIMER_A1->CCR[3] = (3000*duty)-1;
+////               TIMER_A1->CCR[4] = (3000*duty)-1;
+//        }
+//    }
 }
 void alarm_Status()
 {
@@ -773,6 +796,9 @@ void alarm_Status()
         sprintf(astatus, "ALARM OFF");
 
     }
+    if(alarm_status == 2){
+        sprintf(astatus, "SNOOZE   ");
+    }
     commandWrite(0xC0);
     while(!(astatus[i]=='\0'))
     {
@@ -781,72 +807,10 @@ void alarm_Status()
     }
     i=0;
 }
-/*-------------------------------------------------------------------------------------------------------------------------------
- *
- * void T32_INT2_IRQHandler()
- *
- * Interrupt Handler for Timer 2.  The name of this function is set in startup_msp432p401r_ccs.c
- *
- * This handler clears the status of the interrupt for Timer32_2
- *
- * Sets up the next note to play in sequence and loads it into TimerA for play back at that frequency.
- * Enables a new Timer32 value to interrupt after the note is complete.
- *
--------------------------------------------------------------------------------------------------------------------------------*/
-
-void T32_INT2_IRQHandler()
-{
-    TIMER32_2->INTCLR = 1;                                      //Clear interrupt flag so it does not interrupt again immediately.
-    if(breath) {                                                //Provides separation between notes
-        TIMER_A0->CCR[0] = 0;                                   //Set output of TimerA to 0
-        TIMER_A0->CCR[1] = 0;
-        TIMER_A0->CCR[2] = 0;
-        TIMER32_2->LOAD = BREATH_TIME;                          //Load in breath time to interrupt again
-        breath = 0;                                             //Next Timer32 interrupt is no longer a breath, but is a note
-    }
-    else {                                                      //If not a breath (a note)
-        TIMER32_2->LOAD = (music_note_sequence[note][1] - 1)*speed;     //Load into interrupt count down the length of this note
-        if(music_note_sequence[note][0] == REST) {              //If note is actually a rest, load in nothing to TimerA
-            TIMER_A0->CCR[0] = 0;
-            TIMER_A0->CCR[1] = 0;
-            TIMER_A0->CCR[2] = 0;
-        }
-        else {
-            TIMER_A0->CCR[0] = 3000000 / music_note_sequence[note][0];  //Math in an interrupt is bad behavior, but shows how things are happening.  This takes our clock and divides by the frequency of this note to get the period.
-            TIMER_A0->CCR[1] = 1500000 / music_note_sequence[note][0];  //50% duty cycle
-            TIMER_A0->CCR[2] = TIMER_A0->CCR[0];                        //Had this in here for fun with interrupts.  Not used right now
-        }
-        note = note + 1;                                                //Next note
-        if(note >= MAX_NOTE) {                                          //Go back to the beginning if at the end
-            note = 0;
-        }
-        breath = 1;                                             //Next time through should be a breath for separation.
-    }
-}
 
 /*-------------------------------------------------------------------------------------------------------------------------------
  *
- * void TA0_N_IRQHandler()
- *
- * Interrupt Handler for Timer A0.  The name of this function is set in startup_msp432p401r_ccs.c
- *
- * This handler clears the status of the interrupt for Timer32_A0 CCTL 1 and 2
- *
- * Toggles P2.0 for every interrupt (LED2 Red) through cooperation with Timer_A0
- * Turns on when CCTL1 interrupts.  Turns off with CCTL2 interrupts.
- *
--------------------------------------------------------------------------------------------------------------------------------*/
-
-void TA0_N_IRQHandler()
-{
-    if(TIMER_A0->CCTL[1] & BIT0) {                  //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
-    }
-    if(TIMER_A0->CCTL[2] & BIT0) {                  //If CCTL1 is the reason for the interrupt (BIT0 holds the flag)
-    }
-}
-/*-------------------------------------------------------------------------------------------------------------------------------
- *
- * void SetupTimer32s()
+ * void Setupspeaker()
  *
  * Configures Timer32_1 as a single shot (runs once) timer that does not interrupt so the value must be monitored.
  * Configures Timer32_2 as a single shot (runs once) timer that does interrupt and will run the interrupt handler 1 second
@@ -854,7 +818,7 @@ void TA0_N_IRQHandler()
  *
 -------------------------------------------------------------------------------------------------------------------------------*/
 
-void SetupTimer32s()
+void Setupspeaker()
 {
     TIMER_A0->CCR[0] = 0;                           // Turn off timerA to start
     TIMER_A0->CCTL[1] = 0b0000000011110100;         // Setup Timer A0_1 Reset/Set, Interrupt, No Output
@@ -878,15 +842,203 @@ void P2_Init()
 void play_alarm()
 {
     int time = secs;
-    if(time%2==0 && alarm_update==1 && alarm_status==1){
+    if(time%2==0 && alarm_update==1 && (alarm_status==1 || alarm_status == 2)){
         TIMER_A0->CCR[0] = 9000;
         TIMER_A0->CCR[1] = 4500;
-        TIMER_A0->CCR[2] = TIMER_A0->CCR[0];
     }
     else
     {
-        TIMER_A0->CCR[0] = 0;
+        TIMER_A0->CCR[0] = 9000;
         TIMER_A0->CCR[1] = 0;
-        TIMER_A0->CCR[2] = 0;
     }
+}
+/*----------------------------------------------------------------
+ * void writeOutput(char *string)
+ *
+ * Description:  This is a function similar to most serial port
+ * functions like printf.  Written as a demonstration and not
+ * production worthy due to limitations.
+ * One limitation is poor memory management.
+ * Inputs: Pointer to a string that has a string to send to the serial.
+ * Outputs: Places the data on the serial output.
+----------------------------------------------------------------*/
+void writeOutput(char *string)
+{
+    int i = 0;  // Location in the char array "string" that is being written to
+
+    while(string[i] != '\0') {
+        EUSCI_A0->TXBUF = string[i];
+        i++;
+        while(!(EUSCI_A0->IFG & BIT1));
+    }
+}
+
+/*----------------------------------------------------------------
+ * void readInput(char *string)
+ *
+ * Description:  This is a function similar to most serial port
+ * functions like ReadLine.  Written as a demonstration and not
+ * production worthy due to limitations.
+ * One of the limitations is that it is BLOCKING which means
+ * it will wait in this function until there is a \n on the
+ * serial input.
+ * Another limitation is poor memory management.
+ * Inputs: Pointer to a string that will have information stored
+ * in it.
+ * Outputs: Places the serial data in the string that was passed
+ * to it.  Updates the global variables of locations in the
+ * INPUT_BUFFER that have been already read.
+----------------------------------------------------------------*/
+void readInput(char *string)
+{
+    int i = 0;  // Location in the char array "string" that is being written to
+
+    // One of the few do/while loops I've written, but need to read a character before checking to see if a \n has been read
+    do
+    {
+        // If a new line hasn't been found yet, but we are caught up to what has been received, wait here for new data
+        while(read_location == storage_location && INPUT_BUFFER[read_location] != '\n');
+        string[i] = INPUT_BUFFER[read_location];  // Manual copy of valid character into "string"
+        INPUT_BUFFER[read_location] = '\0';
+        i++; // Increment the location in "string" for next piece of data
+        read_location++; // Increment location in INPUT_BUFFER that has been read
+        if(read_location == BUFFER_SIZE)  // If the end of INPUT_BUFFER has been reached, loop back to 0
+            read_location = 0;
+    }
+    while(string[i-1] != '\n'); // If a \n was just read, break out of the while loop
+
+    string[i-1] = '\0'; // Replace the \n with a \0 to end the string when returning this function
+}
+
+/*----------------------------------------------------------------
+ * void EUSCIA0_IRQHandler(void)
+ *
+ * Description: Interrupt handler for serial communication on EUSCIA0.
+ * Stores the data in the RXBUF into the INPUT_BUFFER global character
+ * array for reading in the main application
+ * Inputs: None (Interrupt)
+ * Outputs: Data stored in the global INPUT_BUFFER. storage_location
+ * in the INPUT_BUFFER updated.
+----------------------------------------------------------------*/
+void EUSCIA0_IRQHandler(void)
+{
+    if (EUSCI_A0->IFG & BIT0)  // Interrupt on the receive line
+    {
+        INPUT_BUFFER[storage_location] = EUSCI_A0->RXBUF; // store the new piece of data at the present location in the buffer
+        if(EUSCI_A0->RXBUF == '\n'){
+            newcomm = 1;
+        }
+        EUSCI_A0->IFG &= ~BIT0; // Clear the interrupt flag right away in case new data is ready
+        storage_location++; // update to the next position in the buffer
+        if(storage_location == BUFFER_SIZE) // if the end of the buffer was reached, loop back to the start
+            storage_location = 0;
+    }
+}
+
+/*----------------------------------------------------------------
+ * void setupP1()
+ * Sets up P1.0 as a GPIO output initialized to 0.
+ *
+ * Description:
+ * Inputs: None
+ * Outputs: Setup of P.1 to an output of a 0.
+----------------------------------------------------------------*/
+void setup()
+{
+    P2->SEL0 &= ~BIT0; //GPIO
+    P2->SEL1 &= ~BIT0;
+    P2->DIR  |=  BIT0; //OUTPUT
+
+    P2->SEL0 &= ~BIT1; //GPIO
+    P2->SEL1 &= ~BIT1;
+    P2->DIR  |=  BIT1; //OUTPUT
+
+    P2->SEL0 &= ~BIT2; //GPIO
+    P2->SEL1 &= ~BIT2;
+    P2->DIR  |=  BIT2; //OUTPUT
+}
+
+/*----------------------------------------------------------------
+ * void setupSerial()
+ * Sets up the serial port EUSCI_A0 as 115200 8E2 (8 bits, Even parity,
+ * two stops bit.)  Enables the interrupt so that received data will
+ * results in an interrupt.
+ * Description:
+ * Inputs: None
+ * Outputs: None
+----------------------------------------------------------------*/
+void setupSerial()
+{
+    P1->SEL0 |=  (BIT2 | BIT3); // P1.2 and P1.3 are EUSCI_A0 RX
+    P1->SEL1 &= ~(BIT2 | BIT3); // and TX respectively.
+
+    EUSCI_A0->CTLW0  = BIT0; // Disables EUSCI. Default configuration is 8N1
+    EUSCI_A0->CTLW0 |= BIT7; // Connects to SMCLK BIT[7:6] = 10
+//    EUSCI_A0->CTLW0 |= (BIT(15)|BIT(14)|BIT(11));  //BIT15 = Parity, BIT14 = Even, BIT11 = Two Stop Bits
+    // Baud Rate Configuration
+    // 3000000/(16*115200) = 1.628  (3 MHz at 115200 bps is fast enough to turn on over sampling (UCOS = /16))
+    // UCOS16 = 1 (0ver sampling, /16 turned on)
+    // UCBR  = 1 (Whole portion of the divide)
+    // UCBRF = .628 * 16 = 10 (0x0A) (Remainder of the divide)
+    // UCBRS = 3000000/115200 remainder=0.04 -> 0x01 (look up table 22-4)
+    EUSCI_A0->BRW = 19;  // UCBR Value from above
+    EUSCI_A0->MCTLW = 0xAA81; //UCBRS (Bits 15-8) & UCBRF (Bits 7-4) & UCOS16 (Bit 0)
+
+    EUSCI_A0->CTLW0 &= ~BIT0;  // Enable EUSCI
+    EUSCI_A0->IFG &= ~BIT0;    // Clear interrupt
+    EUSCI_A0->IE |= BIT0;      // Enable interrupt
+    NVIC_EnableIRQ(EUSCIA0_IRQn);
+}
+void get_serial(){
+    readInput(string); // Read the input up to \n, store in string.  This function doesn't return until \n is received
+        if(string[0] != '\0'){ // if string is not empty, check the inputted data.
+                 if(string[0] == 'S'){
+                     if(string[3] == 'A'){
+                         //set the alarm
+                        for(b=9,c=0;b<=10,c<=1;b++,c++){
+                            ahour[c]=string[b];
+                        }
+                          alarmhours = atoi(ahour);
+                        for(b=12,c=0;b<=13,c<=1;b++,c++){
+                            amin[c] = string[b];
+                        }
+                        alarmmins = atoi(amin);
+
+                        RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);
+
+                     }
+                     if(string[3] == 'T'){
+                         //set the time
+                         for(b=8,c=0;b<=9,c<=1;b++,c++)
+                        {
+                            chour[c] = string[b];
+                        }
+                         currenthour = atoi(chour);
+
+                         for(b=11,c=0;b<=12,c<=1;b++,c++)
+                         {
+                             cmin[c] = string[b];
+                         }
+                         currentmin = atoi(cmin);
+
+                         for(b=14,c=0;b<=15,c<=1;b++,c++){
+                             csec[c] = string[b];
+                         }
+                         currentsec = atoi(csec);
+
+                         RTC_C->TIM0 = currentmin<<8 | currentsec;//45 min, 55 secs
+                         RTC_C->TIM1 = 1<<8 | currenthour;  //Monday, 2 pm
+                     }
+                 }
+                  if(string[0] == 'R'){
+                      if(string[4] == 'A'){
+                          //write output the current alarm
+                          writeOutput(alarmtime);
+                      }
+                      if(string[4] == 'T'){
+                          //write output the current time
+                          writeOutput(currenttime);
+                      }
+                  }
+               }
 }
