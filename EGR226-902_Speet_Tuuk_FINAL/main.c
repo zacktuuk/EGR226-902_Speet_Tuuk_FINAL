@@ -55,7 +55,7 @@ void Setupspeaker();
 void alarm_Status();
 void wake_Up_Lights();
 void return_ADC();
-void P4_Init_ADC();
+void P6_Init_ADC();
 void ADC14_Init();
 void initialization();
 void LCD_init();
@@ -74,12 +74,12 @@ void main(void)
 char doublespace[2] = "  ";                                //used to write blanks
     initialization();                               //initialize all pins, timers, and interrupts
     RTC_Init();
+    P6_Init_ADC();
+    ADC14_Init();
     setupSerial();
       INPUT_BUFFER[0]= '\0';
     __enable_interrupt();
     LCD_init();
-    P4_Init_ADC();
-    ADC14_Init();
     Setupspeaker();
 
 
@@ -558,6 +558,7 @@ RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 ar
                 alarm_status = 1;
                 RTC_C->AMINHR |= (BIT(15)|BIT7);
             }
+
         }
 RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 are Alarm Enable bits
 
@@ -714,10 +715,10 @@ void LCD_init()
 
     commandWrite(0x0C);
 }
-void P4_Init_ADC()
+void P6_Init_ADC()
 {
-    P4->SEL0 |= BIT1;                                          //initializes P4.1 to Analog input
-    P4->SEL1 |= BIT1;
+    P6->SEL0 |= BIT1;                                          //initializes P4.1 to Analog input
+    P6->SEL1 |= BIT1;
 }
 void ADC14_Init()
 {
@@ -727,11 +728,12 @@ void ADC14_Init()
     ADC14->CTL1   |=  0;                                       //converts to MEM0 register
     ADC14->MCTL[0] =  14;                                      //MEM[0] has the value ADC14INCHx = 0
     ADC14->CTL0   |=  0b10;                                    //Enables the ADC
+    NVIC_EnableIRQ(ADC14_IRQn);
 }
 void return_ADC()
 {
     static volatile uint16_t result;
-
+    ADC14->CTL0 |= BIT0;
     ADC14->CTL0 |= ADC14_CTL0_SC;                                       //starts conversion sequence
     while(!(ADC14->IFGR0 & BIT0));
     result = ADC14->MEM[0];                                    //stores ADC value into result
@@ -747,47 +749,19 @@ void return_ADC()
     }
     i=0;
 }
-//void ADC_IRQHandler()
-//{
-//    if(ADC14->IFGR0 & BIT0)                             // Table 20-14. ADC14IFGR0 Register Description of Reference Manual says interrupt flag will be at BIT0 for ADC14MEM0
-//       {
-//           ADC14->MCTL[1]       =   0;
-//           ADC14->MCTL[2]       =   22;
-//           ADC14->CLRIFGR0     &=  ~BIT0;                  // Clear MEM0 interrupt flag
-//       }
-//    ADC14->CLRIFGR1     &=    ~0b1111110;                 // Clear all IFGR1 Interrupts (Bits 6-1.  These could trigger an interrupt and we are checking them for now.)
-//}
+void ADC_IRQHandler()
+{
+    if(ADC14->IFGR0 & BIT0)                             // Table 20-14. ADC14IFGR0 Register Description of Reference Manual says interrupt flag will be at BIT0 for ADC14MEM0
+       {
+           ADC14->MCTL[1]       =   0;
+           ADC14->MCTL[2]       =   22;
+           ADC14->CLRIFGR0     &=  ~BIT0;                  // Clear MEM0 interrupt flag
+       }
+    ADC14->CLRIFGR1     &=    ~0b1111110;                 // Clear all IFGR1 Interrupts (Bits 6-1.  These could trigger an interrupt and we are checking them for now.)
+}
 void wake_Up_Lights()
 {
-    //float duty = 0.01;
-    int x = RTC_C->TIM1 & 0x00FF;
-    int y = (alarmmins - ((RTC_C->TIM0 & 0xFF00)>>8));
-    int w = (RTC_C->TIM0 & 0x00FF);
-    int brightness = (9000*duty)-1;
-    TIMER_A0->CCR[3] = brightness;
-    TIMER_A0->CCR[2] = brightness;
-    if((x == alarmhours) && (y <= 5))
-    {
-//        wakeupsequence = 1;
-        if(w%3 == 0){
-         duty+=0.01;
-       //               TIMER_A1->CCR[3] = (3000*duty)-1;
-       //               TIMER_A1->CCR[4] = (3000*duty)-1;
-               }
-    }
 
-
-//    if(wakeupsequence)
-//    {
-////               static int check = 0;
-////               check = (alarmmins*60) - ((RTC_C->TIM0 & 0x00FF));
-////               if(check%3 = 0)
-//        if(w%3 == 0){
-//               duty+=0.01;
-////               TIMER_A1->CCR[3] = (3000*duty)-1;
-////               TIMER_A1->CCR[4] = (3000*duty)-1;
-//        }
-//    }
 }
 void alarm_Status()
 {
