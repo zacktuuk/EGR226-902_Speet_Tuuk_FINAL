@@ -92,6 +92,7 @@ while (1){
     wake_Up_Lights();
     return_ADC();
     alarm_Status();
+
     switch (state){
 
     case clock:
@@ -318,6 +319,7 @@ void RTC_C_IRQHandler()
     }
     if(time_set == 1)
     {
+        if(hours==RTC_C->AMINHR )
         if(mins>59){
             RTC_C->TIM1 = ((RTC_C->TIM1 & 0x00FF)+1);
         }
@@ -338,6 +340,7 @@ void RTC_C_IRQHandler()
             RTC_C->TIM0 = (((RTC_C->TIM0 & 0xFF00) >> 8)+1)<<8;
             time_update = 1;
         }
+        //if()
         RTC_C->PS1CTL &= ~BIT0;
     }
     if(time_set == 0)
@@ -760,9 +763,10 @@ void wake_Up_Lights()
     int x = RTC_C->TIM1 & 0x00FF;
     int y = (alarmmins - ((RTC_C->TIM0 & 0xFF00)>>8));
     int w = (RTC_C->TIM0 & 0x00FF);
-    TIMER_A0->CCR[3] = (9000*duty)-1;
-    TIMER_A0->CCR[2] = (9000*duty)-1;
-    if(x == alarmhours && (y <= 5) )
+    int brightness = (9000*duty)-1;
+    TIMER_A0->CCR[3] = brightness;
+    TIMER_A0->CCR[2] = brightness;
+    if((x == alarmhours) && (y <= 5))
     {
 //        wakeupsequence = 1;
         if(w%3 == 0){
