@@ -3,10 +3,12 @@
 #include <string.h>
 /*
  * Dylan Speet and Zachary Tuuk
- * 11/27/2018 Start
+ * 11/27/2018 Start 12/5/2018 End
  * Alarm Clock Final Project for EGR 226-902
  * Uses timerA, Real time clock, Interrupts, DAC, and ADC
  * Buttons, LEDs, LCD, Potentiometer, Speaker
+ * Varios codes from Prof. Zuidema, Prof Kandalaft and Prof. Brakora
+ * were referenced to write this code.
  */
 enum states{
     setalarm,
@@ -50,10 +52,8 @@ char currenttime[11];
 char alarmtime[14];
 
 void get_serial();
-void P2_Init();
 void Setupspeaker();
 void alarm_Status();
-void wake_Up_Lights();
 void return_ADC();
 void P6_Init_ADC();
 void ADC14_Init();
@@ -84,12 +84,11 @@ char doublespace[2] = "  ";                                //used to write blank
 
 
 while (1){
-    if(newcomm){
+    if(newcomm){                          //Checks if line feed from the serial port
     get_serial();
     newcomm = 0;
     }
 
-    wake_Up_Lights();
     return_ADC();
     alarm_Status();
 
@@ -222,7 +221,7 @@ while (1){
                               sprintf(alarmtime,"ALARM:%02d:%02d AM",alarmhours+12,alarmmins);
                           }
                           else
-                              sprintf(alarmtime,"ALARM: %01d:%02d AM",alarmhours,alarmmins);
+                              sprintf(alarmtime,"ALARM: %01d:%02d AM",alarmhours,alarmmins);       //print alarm till null
                       }
                       if(alarmhours >= 10 && alarmhours <=12){
                           if(alarmhours == 12)
@@ -289,6 +288,11 @@ while (1){
 }
 }
 }
+/*
+ * RTC_Init()
+ * Written by Zack Tuuk and Dylan Speet Referenced from Prof Zuidemas Example Code
+ * Initializes the Real time Clock and its alarm, including interrupts.
+ */
 void RTC_Init(){
     //Initialize time to 2:45:55 pm
 //    RTC_C->TIM0 = 0x2D00;  //45 min, 0 secs
@@ -307,7 +311,12 @@ void RTC_Init(){
     RTC_C->CTL13 = 0;
     NVIC_EnableIRQ(RTC_C_IRQn);
 }
-
+/*
+ * RTC_C_IRQHandler()
+ * Interrupt Handler was taken from msp.h
+ * Contents written by Zack Tuuk and Dylan Speet, some bit shifting referenced from Prof. Zuidema
+ * Makes sure the time values are stored correctly and increments them accordingly.
+ */
 void RTC_C_IRQHandler()
 {
     if(RTC_C->PS1CTL & BIT0){
@@ -364,6 +373,14 @@ void RTC_C_IRQHandler()
         RTC_C->CTL0 = (0xA500) | BIT5;
     }
 }
+/*
+ * Port3_IRQHandler()
+ * Function created in library
+ * Contents written by Zack Tuuk and Dylan Speet
+ * This handler determines which button was pressed and based on which button was pressed
+ * if statements set flags in order to set the time,snooze,set the alarm, turn off the alarm,
+ * turn on the alarm etc..
+ */
 void PORT3_IRQHandler()
 {
     status = P3->IFG;
@@ -564,6 +581,11 @@ RTC_C->AMINHR = alarmhours<<8 | alarmmins | BIT(15) | BIT(7);  //bit 15 and 7 ar
 
     }
 }
+/*
+ * initialization()
+ * Written by Zack Tuuk and Dylan Speet
+ * Initializes systick timer, LCD pins and button pins
+ */
 void initialization(){
 SysTick -> CTRL = 0;                    //Systic Timer
 SysTick -> LOAD = 0x00FFFFFF;
@@ -616,19 +638,12 @@ P1->OUT &=~BIT6;
     NVIC_EnableIRQ(PORT3_IRQn);
 //Buttons done***************************************************************************************
 
-//Wake up lights***********************************************************************************
-    P7->SEL0 |=  (BIT4|BIT5);                         //Timer A pin
-    P7->SEL1 &= ~(BIT4|BIT5);
-    P7->DIR  |=  (BIT4|BIT5);
-
-    TIMER_A1->CTL       = 0b0000001000010100;
-    TIMER_A1->CCR[0]    = 2999;
-    TIMER_A1->CCR[3]    = (3000*duty)-1;
-    TIMER_A1->CCR[4]    = (3000*duty)-1;
-    TIMER_A1->CCTL[3]   = 0xE0;
-    TIMER_A1->CCTL[4]   = 0xE0;
-
 }
+/*
+ * commandWrite()
+ * Referenced from Prof. Zuidema written by Zack Tuuk and Dylan Speet
+ * Sends a write command to the LCD.
+ */
 void commandWrite(uint8_t command)
 {
 
@@ -637,6 +652,8 @@ pushByte(command);
 
 }
 /*
+ * dataWrite()
+ * Referenced from Prof. Zuidema written by Zack Tuuk and Dylan Speet
  * dataWrite is used to send symbols to the LCD
  */
 void dataWrite(uint8_t data)
@@ -645,6 +662,11 @@ void dataWrite(uint8_t data)
 P1->OUT |= BIT6;                               //RS Pin to 1
 pushByte(data);
 }
+/*
+ * pushByte()
+ * Referenced from Prof. Zuidema and written by Zack Tuuk and Dylan Speet
+ * Sends a byte of data to the LCD
+ */
 void pushByte(uint8_t byte)                                           //referenced from Kandalaf lecture
 {
 uint8_t nibble;
@@ -654,6 +676,11 @@ nibble = byte & 0x0F;              //copy in least significant bits by anding wi
 pushNibble(nibble);
 delay_micro(1000);                  //delay for 100 microseconds
 }
+/*
+ * pushNibble()
+ * Referenced from Prof. Zuidema and written by Zack Tuuk and Dylan Speet
+ * Sends a nibble to the LCD
+ */
 void pushNibble (uint8_t nibble)                                          //referenced from Kandalaf Lecture
 {
 P6->OUT &=~(BIT7|BIT6|BIT5|BIT4); //BIT7|BIT6|BIT5|BIT4
@@ -662,6 +689,8 @@ P6->OUT |= (nibble & 0x0F)<<4; //and nibble with 1111b to copy it and then shift
 PulseEnablePin();
 }
 /*
+ * PulseEnablePin()
+ * Referenced from Prof. Zuidema and written by Zack Tuuk and Dylan Speet
  * PulseEnablePin() allowed for data to be read
  * on the LCD every 10,000 microseconds
  */
@@ -675,6 +704,11 @@ delay_micro(microsecond);       //wait 10000 microseconds
 P1->OUT &= ~BIT5;               //enable is 0
 delay_micro(microsecond);       //wait 10000 microseconds
 }
+/*
+ * delay_ms
+ * Written by Zack Tuuk and Dylan Speet
+ * delay for a millisecond amount
+ */
 void delay_ms(unsigned ms)
 {
     SysTick -> LOAD = ((ms*3000)-1);   // ms second countdown to 0;
@@ -683,6 +717,11 @@ void delay_ms(unsigned ms)
        while((SysTick -> CTRL & 0x00010000)==0);
 
 }
+/*
+ * delay_micro()
+ * Written by Zack Tuuk and Dylan Speet
+ * Delay for a microsecond amount
+ */
 void delay_micro(unsigned microsec)
 {
     SysTick -> LOAD = ((microsec*3)-1);   // microsecond second countdown to 0;
@@ -690,6 +729,12 @@ void delay_micro(unsigned microsec)
 
        while((SysTick -> CTRL & 0x00010000)==0);
 }
+/*
+ * LCD_init()
+ * Referenced from Prof. Zuidema, Prof. Brakora and Prof. Kandalaft, written by Zack Tuuk and Dylan Speet
+ * Initializes the LCD and blinks the cursor.
+ * Cursor is turned off at the end.
+ */
 void LCD_init()
 {
     commandWrite(3);                               //LCD_init referenced from Lab Write-up
@@ -713,13 +758,23 @@ void LCD_init()
     commandWrite(6);
     delay_ms(10);
 
-    commandWrite(0x0C);
+    commandWrite(0x0C);                                      // makes cursor invisible
 }
+/*
+ * P6_Init_ADC()
+ * Written by Zack Tuuk and Dylan Speet
+ * Intializes P6.1 to analog read
+ */
 void P6_Init_ADC()
 {
-    P6->SEL0 |= BIT1;                                          //initializes P4.1 to Analog input
+    P6->SEL0 |= BIT1;                                          //initializes P6.1 to Analog input
     P6->SEL1 |= BIT1;
 }
+/*
+ * ADC14_Init()
+ * Written by Zack Tuuk and Dylan Speet referenced from Prof. Zuidemas lecture code
+ * Sets up ADC to read temperature sensor.
+ */
 void ADC14_Init()
 {
     ADC14->CTL0    =  0;                                       //disables ADC for setup
@@ -730,6 +785,11 @@ void ADC14_Init()
     ADC14->CTL0   |=  0b10;                                    //Enables the ADC
     NVIC_EnableIRQ(ADC14_IRQn);
 }
+/*
+ * return_ADC()
+ * Referenced from Prof. Zuidema and written by Dylan Speet and Zack Tuuk
+ * Gets a reading in from MEM[0] and converts it to voltage and then to fahrenheit
+ */
 void return_ADC()
 {
     static volatile uint16_t result;
@@ -749,6 +809,11 @@ void return_ADC()
     }
     i=0;
 }
+/*
+ * ADC_IRQHandler()
+ * Written by Zack Tuuk and Dylan Speet
+ * Gets the readings from the ADC
+ */
 void ADC_IRQHandler()
 {
     if(ADC14->IFGR0 & BIT0)                             // Table 20-14. ADC14IFGR0 Register Description of Reference Manual says interrupt flag will be at BIT0 for ADC14MEM0
@@ -759,10 +824,12 @@ void ADC_IRQHandler()
        }
     ADC14->CLRIFGR1     &=    ~0b1111110;                 // Clear all IFGR1 Interrupts (Bits 6-1.  These could trigger an interrupt and we are checking them for now.)
 }
-void wake_Up_Lights()
-{
-
-}
+/*
+ * alarm_Status()
+ * Written by Dylan Speet and Zack Tuuk
+ * Depending on what the Alarm status is, the function prints
+ * the status to the LCD.
+ */
 void alarm_Status()
 {
     if(alarm_status == 1)
@@ -790,6 +857,8 @@ void alarm_Status()
  *
  * void Setupspeaker()
  *
+ *Referenced from Prof. Zuidema Assignment 5, Written by Zack Tuuk and Dylan Speet
+ *
  * Configures Timer32_1 as a single shot (runs once) timer that does not interrupt so the value must be monitored.
  * Configures Timer32_2 as a single shot (runs once) timer that does interrupt and will run the interrupt handler 1 second
  * after this function is called (and the master interrupt is enabled).
@@ -809,14 +878,11 @@ void Setupspeaker()
     P2->SEL1 &= ~BIT4;
     P2->DIR |= BIT4;
 }
-
-void P2_Init()
-{
-    P2->SEL0 |=  BIT0;
-    P2->SEL1 &= ~BIT0;
-    P2->DIR  |=  BIT0;
-    P2->OUT  &= ~BIT0;
-}
+/*
+ * play_alarm()
+ * Written by Zack Tuuk and Dylan Speet
+ * Plays the alarm sound
+ */
 void play_alarm()
 {
     int time = secs;
@@ -832,6 +898,8 @@ void play_alarm()
 }
 /*----------------------------------------------------------------
  * void writeOutput(char *string)
+ *
+ *Referenced from Prof. Zuidema, Written by Dylan Speet and Zack Tuuk
  *
  * Description:  This is a function similar to most serial port
  * functions like printf.  Written as a demonstration and not
@@ -853,6 +921,8 @@ void writeOutput(char *string)
 
 /*----------------------------------------------------------------
  * void readInput(char *string)
+ *
+ *Referenced from Prof. Zuidema, Written by Dylan Speet and Zack Tuuk
  *
  * Description:  This is a function similar to most serial port
  * functions like ReadLine.  Written as a demonstration and not
@@ -891,6 +961,8 @@ void readInput(char *string)
 /*----------------------------------------------------------------
  * void EUSCIA0_IRQHandler(void)
  *
+ *Referenced from Prof Zuidema, written by Dylan Speet and Zack Tuuk
+ *
  * Description: Interrupt handler for serial communication on EUSCIA0.
  * Stores the data in the RXBUF into the INPUT_BUFFER global character
  * array for reading in the main application
@@ -912,32 +984,11 @@ void EUSCIA0_IRQHandler(void)
             storage_location = 0;
     }
 }
-
-/*----------------------------------------------------------------
- * void setupP1()
- * Sets up P1.0 as a GPIO output initialized to 0.
- *
- * Description:
- * Inputs: None
- * Outputs: Setup of P.1 to an output of a 0.
-----------------------------------------------------------------*/
-void setup()
-{
-    P2->SEL0 &= ~BIT0; //GPIO
-    P2->SEL1 &= ~BIT0;
-    P2->DIR  |=  BIT0; //OUTPUT
-
-    P2->SEL0 &= ~BIT1; //GPIO
-    P2->SEL1 &= ~BIT1;
-    P2->DIR  |=  BIT1; //OUTPUT
-
-    P2->SEL0 &= ~BIT2; //GPIO
-    P2->SEL1 &= ~BIT2;
-    P2->DIR  |=  BIT2; //OUTPUT
-}
-
 /*----------------------------------------------------------------
  * void setupSerial()
+ *
+ * Referenced from Prof. Zuidema and Written by Zack Tuuk and Dylan Speet
+ *
  * Sets up the serial port EUSCI_A0 as 115200 8E2 (8 bits, Even parity,
  * two stops bit.)  Enables the interrupt so that received data will
  * results in an interrupt.
@@ -967,6 +1018,12 @@ void setupSerial()
     EUSCI_A0->IE |= BIT0;      // Enable interrupt
     NVIC_EnableIRQ(EUSCIA0_IRQn);
 }
+/*
+ * get_serial()
+ * Written by Dylan Speet and Zack Tuuk
+ * Gets whatever is sent on the serial port and sets the time or alarm.
+ * Also sends back to the serial what is currently on clock and alarm.
+ */
 void get_serial(){
     readInput(string); // Read the input up to \n, store in string.  This function doesn't return until \n is received
         if(string[0] != '\0'){ // if string is not empty, check the inputted data.
